@@ -43,24 +43,58 @@ tag_types = [
 import os
 TARGET_TAG_COUNT = int(os.getenv("MOCK_PI_TAG_COUNT", "128"))  # Default 128, set to 30000 for scale test
 
+# Australian Energy Facility Names (Real Australian power plants, mines, and facilities)
+AUSTRALIAN_ENERGY_FACILITIES = [
+    # Major Power Stations (Coal, Gas, Hydro, Solar)
+    "Loy_Yang_A", "Loy_Yang_B", "Yallourn", "Eraring", "Bayswater",
+    "Mount_Piper", "Vales_Point", "Stanwell", "Kogan_Creek", "Callide",
+    "Gladstone", "Tarong", "Millmerran", "Torrens_Island", "Pelican_Point",
+    "Osborne", "Quarantine", "Hazelwood", "Macquarie", "Uranquinty",
+
+    # Renewable Energy
+    "Hornsdale_Wind", "Capital_Wind", "Snowtown_Wind", "Lake_Bonney_Wind",
+    "Broken_Hill_Solar", "Nyngan_Solar", "Moree_Solar", "Darling_Downs_Solar",
+    "Bungala_Solar", "Tailem_Bend_Solar", "Kennedy_Energy_Park",
+
+    # Hydro Power
+    "Snowy_Hydro", "Tumut_1", "Tumut_2", "Tumut_3", "Murray_1", "Murray_2",
+    "Blowering", "Gordon", "Poatina", "Tarraleah", "Trevallyn", "Cethana",
+
+    # Mining and Resources
+    "Olympic_Dam", "Mount_Isa_Copper", "Bowen_Basin", "Hunter_Valley",
+    "Pilbara_Iron_Ore", "Kalgoorlie_Gold", "Roy_Hill", "Port_Hedland",
+    "Gladstone_Refinery", "Kwinana_Refinery", "Bell_Bay_Aluminium",
+
+    # Water Treatment
+    "Kurnell_Desalination", "Perth_Desalination", "Adelaide_Desalination",
+    "Gold_Coast_Desalination", "Sydney_Water_Treatment", "Melbourne_Water",
+
+    # Additional facilities for scale
+    "Collie", "Muja", "Bluewaters", "Cockburn", "Alcoa_Pinjarra", "Alcoa_Wagerup"
+]
+
 # Calculate required plants/units to reach target
 # Formula: plants × units × 8 sensor types = target tags
-# For 30,000 tags: need ~60 plants × 63 units = 30,240 tags
 if TARGET_TAG_COUNT <= 200:
     # Small scale (demo): 4 plants × 4 units × 8 sensors = 128 tags
-    plant_names = ["Sydney", "Melbourne", "Brisbane", "Perth"]
+    plant_names = ["Eraring", "Bayswater", "Loy_Yang_A", "Stanwell"]
     unit_count = 4
 elif TARGET_TAG_COUNT <= 1000:
     # Medium scale: 10 plants × 13 units × 8 sensors = 1,040 tags
-    plant_names = [f"Plant_{i:02d}" for i in range(1, 11)]
+    plant_names = AUSTRALIAN_ENERGY_FACILITIES[:10]
     unit_count = 13
 elif TARGET_TAG_COUNT <= 10000:
     # Large scale: 25 plants × 50 units × 8 sensors = 10,000 tags
-    plant_names = [f"Site_{i:03d}" for i in range(1, 26)]
+    plant_names = AUSTRALIAN_ENERGY_FACILITIES[:25]
     unit_count = 50
 else:
-    # Massive scale: 60 plants × 63 units × 8 sensors = 30,240 tags
-    plant_names = [f"Facility_{i:03d}" for i in range(1, 61)]
+    # Massive scale: Use all facilities + numbered expansions
+    # 60 facilities needed for 30K tags
+    plant_names = AUSTRALIAN_ENERGY_FACILITIES.copy()
+    # Add numbered facilities if we need more than available real names
+    while len(plant_names) < 60:
+        plant_names.append(f"Processing_Plant_{len(plant_names) - len(AUSTRALIAN_ENERGY_FACILITIES) + 1:02d}")
+    plant_names = plant_names[:60]
     unit_count = 63
 
 tag_id = 1
