@@ -1,0 +1,342 @@
+# Databricks Asset Bundle - Load-Balanced Pipeline Configuration
+# OSI PI Lakeflow Connector - Production Scale (30K+ tags)
+
+bundle:
+  name: osipi-lakeflow-connector-loadbalanced
+
+# Production target with load-balanced pipeline
+targets:
+  prod:
+    mode: production
+    workspace:
+      host: https://e2-demo-field-eng.cloud.databricks.com
+      root_path: /Workspace/production/osipi-connector
+
+resources:
+  jobs:
+    # Main orchestrator job
+    osipi_connector_orchestrator:
+      name: "OSI PI Connector - Load Balanced Pipeline"
+
+      tasks:
+        # Task 1: Discover and partition tags
+        - task_key: discover_and_partition_tags
+          job_cluster_key: orchestrator_cluster
+          notebook_task:
+            notebook_path: ./notebooks/orchestrator_discover_tags.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              pi_web_api_url: ${var.pi_web_api_url}
+              total_partitions: "10"  # Split 30K tags into 10 partitions of 3K each
+
+        # Task 2: Extract AF Hierarchy (once per run)
+        - task_key: extract_af_hierarchy
+          depends_on:
+            - task_key: discover_and_partition_tags
+          job_cluster_key: orchestrator_cluster
+          notebook_task:
+            notebook_path: ./notebooks/extract_af_hierarchy.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              pi_web_api_url: ${var.pi_web_api_url}
+
+        # Task 3: Parallel time-series extraction (10 partitions)
+        # Each partition runs on its own cluster for maximum parallelism
+        - task_key: extract_timeseries_partition_0
+          depends_on:
+            - task_key: discover_and_partition_tags
+          job_cluster_key: extraction_cluster_0
+          notebook_task:
+            notebook_path: ./notebooks/extract_timeseries_partition.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              pi_web_api_url: ${var.pi_web_api_url}
+              partition_id: "0"
+
+        - task_key: extract_timeseries_partition_1
+          depends_on:
+            - task_key: discover_and_partition_tags
+          job_cluster_key: extraction_cluster_1
+          notebook_task:
+            notebook_path: ./notebooks/extract_timeseries_partition.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              pi_web_api_url: ${var.pi_web_api_url}
+              partition_id: "1"
+
+        - task_key: extract_timeseries_partition_2
+          depends_on:
+            - task_key: discover_and_partition_tags
+          job_cluster_key: extraction_cluster_2
+          notebook_task:
+            notebook_path: ./notebooks/extract_timeseries_partition.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              pi_web_api_url: ${var.pi_web_api_url}
+              partition_id: "2"
+
+        - task_key: extract_timeseries_partition_3
+          depends_on:
+            - task_key: discover_and_partition_tags
+          job_cluster_key: extraction_cluster_3
+          notebook_task:
+            notebook_path: ./notebooks/extract_timeseries_partition.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              pi_web_api_url: ${var.pi_web_api_url}
+              partition_id: "3"
+
+        - task_key: extract_timeseries_partition_4
+          depends_on:
+            - task_key: discover_and_partition_tags
+          job_cluster_key: extraction_cluster_4
+          notebook_task:
+            notebook_path: ./notebooks/extract_timeseries_partition.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              pi_web_api_url: ${var.pi_web_api_url}
+              partition_id: "4"
+
+        - task_key: extract_timeseries_partition_5
+          depends_on:
+            - task_key: discover_and_partition_tags
+          job_cluster_key: extraction_cluster_5
+          notebook_task:
+            notebook_path: ./notebooks/extract_timeseries_partition.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              pi_web_api_url: ${var.pi_web_api_url}
+              partition_id: "5"
+
+        - task_key: extract_timeseries_partition_6
+          depends_on:
+            - task_key: discover_and_partition_tags
+          job_cluster_key: extraction_cluster_6
+          notebook_task:
+            notebook_path: ./notebooks/extract_timeseries_partition.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              pi_web_api_url: ${var.pi_web_api_url}
+              partition_id: "6"
+
+        - task_key: extract_timeseries_partition_7
+          depends_on:
+            - task_key: discover_and_partition_tags
+          job_cluster_key: extraction_cluster_7
+          notebook_task:
+            notebook_path: ./notebooks/extract_timeseries_partition.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              pi_web_api_url: ${var.pi_web_api_url}
+              partition_id: "7"
+
+        - task_key: extract_timeseries_partition_8
+          depends_on:
+            - task_key: discover_and_partition_tags
+          job_cluster_key: extraction_cluster_8
+          notebook_task:
+            notebook_path: ./notebooks/extract_timeseries_partition.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              pi_web_api_url: ${var.pi_web_api_url}
+              partition_id: "8"
+
+        - task_key: extract_timeseries_partition_9
+          depends_on:
+            - task_key: discover_and_partition_tags
+          job_cluster_key: extraction_cluster_9
+          notebook_task:
+            notebook_path: ./notebooks/extract_timeseries_partition.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              pi_web_api_url: ${var.pi_web_api_url}
+              partition_id: "9"
+
+        # Task 4: Extract Event Frames (parallel to time-series)
+        - task_key: extract_event_frames
+          depends_on:
+            - task_key: extract_af_hierarchy
+          job_cluster_key: orchestrator_cluster
+          notebook_task:
+            notebook_path: ./notebooks/extract_event_frames.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              pi_web_api_url: ${var.pi_web_api_url}
+
+        # Task 5: Data quality validation (waits for all extractions)
+        - task_key: validate_data_quality
+          depends_on:
+            - task_key: extract_timeseries_partition_0
+            - task_key: extract_timeseries_partition_1
+            - task_key: extract_timeseries_partition_2
+            - task_key: extract_timeseries_partition_3
+            - task_key: extract_timeseries_partition_4
+            - task_key: extract_timeseries_partition_5
+            - task_key: extract_timeseries_partition_6
+            - task_key: extract_timeseries_partition_7
+            - task_key: extract_timeseries_partition_8
+            - task_key: extract_timeseries_partition_9
+            - task_key: extract_event_frames
+          job_cluster_key: orchestrator_cluster
+          notebook_task:
+            notebook_path: ./notebooks/data_quality_validation.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        # Task 6: Optimize Delta tables
+        - task_key: optimize_delta_tables
+          depends_on:
+            - task_key: validate_data_quality
+          job_cluster_key: orchestrator_cluster
+          notebook_task:
+            notebook_path: ./notebooks/optimize_delta_tables.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+      # Job clusters - one orchestrator + 10 extraction clusters
+      job_clusters:
+        # Orchestrator cluster (smaller, for coordination)
+        - job_cluster_key: orchestrator_cluster
+          new_cluster:
+            spark_version: 14.3.x-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 1
+            spark_conf:
+              spark.databricks.delta.preview.enabled: true
+
+        # Extraction clusters (10 parallel clusters for load balancing)
+        - job_cluster_key: extraction_cluster_0
+          new_cluster:
+            spark_version: 14.3.x-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 2
+            spark_conf:
+              spark.databricks.delta.preview.enabled: true
+
+        - job_cluster_key: extraction_cluster_1
+          new_cluster:
+            spark_version: 14.3.x-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 2
+            spark_conf:
+              spark.databricks.delta.preview.enabled: true
+
+        - job_cluster_key: extraction_cluster_2
+          new_cluster:
+            spark_version: 14.3.x-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 2
+            spark_conf:
+              spark.databricks.delta.preview.enabled: true
+
+        - job_cluster_key: extraction_cluster_3
+          new_cluster:
+            spark_version: 14.3.x-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 2
+            spark_conf:
+              spark.databricks.delta.preview.enabled: true
+
+        - job_cluster_key: extraction_cluster_4
+          new_cluster:
+            spark_version: 14.3.x-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 2
+            spark_conf:
+              spark.databricks.delta.preview.enabled: true
+
+        - job_cluster_key: extraction_cluster_5
+          new_cluster:
+            spark_version: 14.3.x-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 2
+            spark_conf:
+              spark.databricks.delta.preview.enabled: true
+
+        - job_cluster_key: extraction_cluster_6
+          new_cluster:
+            spark_version: 14.3.x-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 2
+            spark_conf:
+              spark.databricks.delta.preview.enabled: true
+
+        - job_cluster_key: extraction_cluster_7
+          new_cluster:
+            spark_version: 14.3.x-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 2
+            spark_conf:
+              spark.databricks.delta.preview.enabled: true
+
+        - job_cluster_key: extraction_cluster_8
+          new_cluster:
+            spark_version: 14.3.x-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 2
+            spark_conf:
+              spark.databricks.delta.preview.enabled: true
+
+        - job_cluster_key: extraction_cluster_9
+          new_cluster:
+            spark_version: 14.3.x-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 2
+            spark_conf:
+              spark.databricks.delta.preview.enabled: true
+
+      # Schedule for production (hourly ingestion)
+      schedule:
+        quartz_cron_expression: "0 0 * * * ?"  # Every hour
+        timezone_id: "UTC"
+        pause_status: UNPAUSED
+
+      # Email notifications
+      email_notifications:
+        on_failure:
+          - data-engineering@company.com
+        on_success:
+          - data-engineering@company.com
+
+      # Timeout and retry configuration
+      timeout_seconds: 7200  # 2 hours max
+      max_concurrent_runs: 1
+
+# Variables
+variables:
+  catalog:
+    description: Unity Catalog name
+    default: pi_production
+
+  schema:
+    description: Schema name for PI data
+    default: bronze
+
+  pi_web_api_url:
+    description: PI Web API endpoint URL
+    default: https://pi-server.company.com/piwebapi
+
+  pi_auth_type:
+    description: Authentication type (basic, kerberos, oauth)
+    default: kerberos
+
+# Include patterns
+include:
+  - "src/**/*.py"
+  - "notebooks/**/*.py"
+  - "config/**/*.yaml"
