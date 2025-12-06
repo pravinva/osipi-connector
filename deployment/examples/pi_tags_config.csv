@@ -1,0 +1,9 @@
+tag_name,tag_webid,pi_server_url,connection_name,target_catalog,target_schema,pipeline_group,schedule,start_time_offset_days
+Plant1_Temperature,F1DP-TAG-001,https://pi-server.company.com/piwebapi,pi_connection_prod,main,bronze,1,0 */15 * * * ?,30
+Plant1_Pressure,F1DP-TAG-002,https://pi-server.company.com/piwebapi,pi_connection_prod,main,bronze,1,0 */15 * * * ?,30
+Plant1_FlowRate,F1DP-TAG-003,https://pi-server.company.com/piwebapi,pi_connection_prod,main,bronze,1,0 */15 * * * ?,30
+Plant2_Temperature,F1DP-TAG-004,https://pi-server.company.com/piwebapi,pi_connection_prod,main,bronze,2,0 */30 * * * ?,30
+Plant2_Pressure,F1DP-TAG-005,https://pi-server.company.com/piwebapi,pi_connection_prod,main,bronze,2,0 */30 * * * ?,30
+Plant2_FlowRate,F1DP-TAG-006,https://pi-server.company.com/piwebapi,pi_connection_prod,main,bronze,2,0 */30 * * * ?,30
+Plant3_Temperature,F1DP-TAG-007,https://pi-server.company.com/piwebapi,pi_connection_prod,main,bronze,3,0 0 */1 * * ?,30
+Plant3_Pressure,F1DP-TAG-008,https://pi-server.company.com/piwebapi,pi_connection_prod,main,bronze,3,0 0 */1 * * ?,30

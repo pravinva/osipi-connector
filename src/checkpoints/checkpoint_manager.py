@@ -1,6 +1,8 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, max as spark_max
-from typing import Dict, List
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.catalog import TableInfo
+from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 import logging
 
@@ -8,11 +10,18 @@ class CheckpointManager:
     """
     Manages incremental ingestion state
     Tracks last successful timestamp per tag
+    Uses Databricks SDK for catalog operations
     """
 
-    def __init__(self, spark: SparkSession, checkpoint_table: str):
+    def __init__(
+        self,
+        spark: SparkSession,
+        checkpoint_table: str,
+        workspace_client: Optional[WorkspaceClient] = None
+    ):
         self.spark = spark
         self.checkpoint_table = checkpoint_table  # e.g., "checkpoints.pi_watermarks"
+        self.workspace_client = workspace_client or WorkspaceClient()
         self.logger = logging.getLogger(__name__)
         self._ensure_checkpoint_table_exists()
 
@@ -97,3 +106,68 @@ class CheckpointManager:
         """)
 
         self.logger.info(f"Updated checkpoints for {len(checkpoint_rows)} tags")
+
+    def get_checkpoint_table_info(self) -> Optional[TableInfo]:
+        """
+        Get checkpoint table metadata using Databricks SDK
+
+        Returns:
+            TableInfo object or None if table doesn't exist
+        """
+        try:
+            table_info = self.workspace_client.tables.get(self.checkpoint_table)
+            return table_info
+        except Exception as e:
+            self.logger.warning(f"Checkpoint table {self.checkpoint_table} not found: {e}")
+            return None
+
+    def get_checkpoint_stats(self) -> Dict:
+        """
+        Get checkpoint statistics
+
+        Returns:
+            Dictionary with checkpoint statistics
+        """
+        try:
+            stats = self.spark.sql(f"""
+                SELECT
+                    COUNT(*) as total_tags,
+                    MIN(last_timestamp) as oldest_checkpoint,
+                    MAX(last_timestamp) as newest_checkpoint,
+                    MIN(last_ingestion_run) as oldest_run,
+                    MAX(last_ingestion_run) as newest_run,
+                    SUM(record_count) as total_records
+                FROM {self.checkpoint_table}
+            """).collect()[0]
+
+            return {
+                'total_tags': stats.total_tags,
+                'oldest_checkpoint': stats.oldest_checkpoint,
+                'newest_checkpoint': stats.newest_checkpoint,
+                'oldest_run': stats.oldest_run,
+                'newest_run': stats.newest_run,
+                'total_records': stats.total_records
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting checkpoint stats: {e}")
+            return {}
+
+    def reset_checkpoint(self, tag_webid: str):
+        """
+        Reset checkpoint for a specific tag (force full reload)
+
+        Args:
+            tag_webid: Tag WebId to reset
+        """
+        self.spark.sql(f"""
+            DELETE FROM {self.checkpoint_table}
+            WHERE tag_webid = '{tag_webid}'
+        """)
+        self.logger.info(f"Reset checkpoint for tag: {tag_webid}")
+
+    def reset_all_checkpoints(self):
+        """
+        Reset all checkpoints (use with caution!)
+        """
+        self.spark.sql(f"DELETE FROM {self.checkpoint_table}")
+        self.logger.warning("Reset ALL checkpoints - next run will be full load")

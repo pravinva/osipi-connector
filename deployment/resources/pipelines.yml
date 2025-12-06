@@ -1,0 +1,53 @@
+resources:
+  pipelines:
+    pi_demo_pipeline_pi_ingestion_1:
+      name: pi_demo_pi_ingestion_group_1
+      catalog: main
+      target: bronze
+      clusters:
+      - label: default
+        num_workers: 2
+      libraries:
+      - notebook:
+          path: ../src/notebooks/pi_ingestion_pipeline.py
+      configuration:
+        pi.tags: F1DP-TAG-001,F1DP-TAG-002,F1DP-TAG-003
+        pi.server.url: https://pi-server.company.com/piwebapi
+        pi.connection.name: pi_connection_prod
+        pi.target.catalog: main
+        pi.target.schema: bronze
+        pi.start_time_offset_days: '30'
+    pi_demo_pipeline_pi_ingestion_2:
+      name: pi_demo_pi_ingestion_group_2
+      catalog: main
+      target: bronze
+      clusters:
+      - label: default
+        num_workers: 2
+      libraries:
+      - notebook:
+          path: ../src/notebooks/pi_ingestion_pipeline.py
+      configuration:
+        pi.tags: F1DP-TAG-004,F1DP-TAG-005,F1DP-TAG-006
+        pi.server.url: https://pi-server.company.com/piwebapi
+        pi.connection.name: pi_connection_prod
+        pi.target.catalog: main
+        pi.target.schema: bronze
+        pi.start_time_offset_days: '30'
+    pi_demo_pipeline_pi_ingestion_3:
+      name: pi_demo_pi_ingestion_group_3
+      catalog: main
+      target: bronze
+      clusters:
+      - label: default
+        num_workers: 2
+      libraries:
+      - notebook:
+          path: ../src/notebooks/pi_ingestion_pipeline.py
+      configuration:
+        pi.tags: F1DP-TAG-007,F1DP-TAG-008
+        pi.server.url: https://pi-server.company.com/piwebapi
+        pi.connection.name: pi_connection_prod
+        pi.target.catalog: main
+        pi.target.schema: bronze
+        pi.start_time_offset_days: '30'
