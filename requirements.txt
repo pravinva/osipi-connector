@@ -1,24 +1,42 @@
-# Core
+# Databricks SDK (REQUIRED for Lakeflow connector)
+databricks-sdk>=0.30.0
+
+# Core Data Processing
 pyspark>=3.5.0
 pandas>=2.0.0
+
+# HTTP and API Communication
 requests>=2.31.0
+
+# Configuration Management
 pyyaml>=6.0
 
 # Authentication
-requests-kerberos>=0.14.0
+requests-kerberos>=0.14.0  # For Kerberos auth with PI Web API
+# requests-oauthlib>=1.3.1  # Uncomment if using OAuth
 
-# Testing
+# Testing (for development and CI/CD)
 pytest>=7.4.0
 pytest-mock>=3.12.0
 pytest-cov>=4.1.0
+
+# Mock PI Server (for development and demos)
 fastapi>=0.104.0
-uvicorn>=0.24.0
+uvicorn[standard]>=0.24.0
 
 # Utilities
 python-dateutil>=2.8.2
 tenacity>=8.2.3  # For retry logic
 
-# Development
-black>=23.0.0
-flake8>=6.1.0
-mypy>=1.7.0
+# Development and Code Quality
+black>=23.0.0  # Code formatting
+flake8>=6.1.0  # Linting
+mypy>=1.7.0    # Type checking
+
+# Data Visualization (for demo notebook)
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Jupyter (for interactive development)
+ipykernel>=6.25.0
+notebook>=7.0.0

@@ -80,6 +80,202 @@ connector.run()
 # - main.bronze.pi_event_frames (process events)
 ```
 
+## Code Flow
+
+### Execution Flow
+
+The connector follows a systematic execution flow when `connector.run()` is called:
+
+```
+1. Initialize Components
+   |
+   +-> PIAuthManager (handles authentication)
+   +-> PIWebAPIClient (HTTP client with retry logic)
+   +-> TimeSeriesExtractor (batch data extraction)
+   +-> AFHierarchyExtractor (recursive metadata extraction)
+   +-> EventFrameExtractor (process event extraction)
+   +-> CheckpointManager (incremental state tracking)
+   +-> DeltaLakeWriter (Unity Catalog persistence)
+
+2. Extract AF Hierarchy (if configured)
+   |
+   +-> Call /piwebapi/assetdatabases/{id}/elements
+   +-> Recursively traverse hierarchy (up to max_depth)
+   +-> Build element paths (/Enterprise/Site1/Unit2/...)
+   +-> Write to bronze.pi_asset_hierarchy (full refresh)
+
+3. Get Tags and Checkpoints
+   |
+   +-> Read tag list from configuration
+   +-> Query checkpoints.pi_watermarks for last timestamps
+   +-> Default to 30 days ago for new tags
+
+4. Extract Time-Series Data (incremental)
+   |
+   +-> Split tags into batches of 100 (batch controller limit)
+   +-> For each batch:
+       |
+       +-> Build batch request (100 tags in single API call)
+       +-> Execute /piwebapi/batch endpoint
+       +-> Parse responses (handle partial failures)
+       +-> Combine into DataFrame
+   |
+   +-> Write to bronze.pi_timeseries (partitioned by date)
+   +-> ZORDER by (tag_webid, timestamp) for query performance
+   +-> Update checkpoints with max timestamp per tag
+
+5. Extract Event Frames (if configured)
+   |
+   +-> Get last event frame checkpoint
+   +-> Call /piwebapi/assetdatabases/{id}/eventframes
+   +-> Filter by template_name (optional)
+   +-> Extract event attributes
+   +-> Calculate duration (start to end)
+   +-> Write to bronze.pi_event_frames
+
+6. Log Completion
+   |
+   +-> "PI connector run completed successfully"
+```
+
+### Module Interaction Diagram
+
+```
++-------------------+
+| PIAuthManager     |  Provides authentication for all HTTP calls
++--------+----------+
+         |
+         v
++-------------------+
+| PIWebAPIClient    |  Low-level HTTP client with retry/pooling
++--------+----------+
+         |
+         +------------------------------------------+
+         |                    |                     |
+         v                    v                     v
++------------------+  +-------------------+  +---------------------+
+| TimeSeriesExt    |  | AFHierarchyExt    |  | EventFrameExt       |
+| (batch optimize) |  | (recursive tree)  |  | (process events)    |
++--------+---------+  +---------+---------+  +----------+----------+
+         |                      |                       |
+         +----------------------+----------+------------+
+                                |
+                                v
+                     +---------------------+
+                     | CheckpointManager   |  Tracks ingestion state
+                     +----------+----------+
+                                |
+                                v
+                     +---------------------+
+                     | DeltaLakeWriter     |  Writes to Unity Catalog
+                     +---------------------+
+                                |
+                                v
+                     +---------------------+
+                     | Unity Catalog       |
+                     | - pi_timeseries     |
+                     | - pi_asset_hierarchy|
+                     | - pi_event_frames   |
+                     | - pi_watermarks     |
+                     +---------------------+
+```
+
+### Data Flow Example (100 Tags)
+
+```
+Step 1: Configuration
+-------
+Input: 100 tag WebIds + time range (last 1 hour)
+
+Step 2: Checkpoint Lookup
+-------
+Query: SELECT tag_webid, last_timestamp FROM checkpoints.pi_watermarks
+Result:
+  - 80 tags: last_timestamp = 1 hour ago (incremental)
+  - 20 tags: no checkpoint (new tags, default to 30 days)
+
+Step 3: Batch API Call (100x Performance Optimization)
+-------
+Build batch request:
+{
+  "Requests": [
+    {"Method": "GET", "Resource": "/streams/Tag1/recorded",
+     "Parameters": {"startTime": "2025-01-06T08:00:00Z", "endTime": "2025-01-06T09:00:00Z"}},
+    {"Method": "GET", "Resource": "/streams/Tag2/recorded", ...},
+    ... (100 requests in single batch)
+  ]
+}
+
+Execute: POST /piwebapi/batch (1 API call, not 100!)
+Response time: ~2 seconds (vs 20 seconds if sequential)
+
+Step 4: Parse and Validate
+-------
+For each sub-response:
+  - Status 200: Extract time-series data
+  - Status 404/500: Log warning, continue with other tags
+  - Parse quality flags (Good, Questionable, Substituted)
+
+Result: DataFrame with ~360,000 records (100 tags × 3600 samples/hour)
+
+Step 5: Write to Delta Lake
+-------
+- Add partition_date column (from timestamp)
+- Write to bronze.pi_timeseries using Delta format
+- Mode: append (incremental ingestion)
+- Optimize: ZORDER BY (tag_webid, timestamp)
+
+Step 6: Update Checkpoints
+-------
+For each tag:
+  - Calculate max timestamp from ingested data
+  - MERGE INTO checkpoints.pi_watermarks
+  - Track last_ingestion_run and record_count
+
+Step 7: Next Run (Incremental)
+-------
+Only ingest data since last checkpoint:
+  - Tag1: last_timestamp = 09:00 → query from 09:00 to now
+  - Tag2: last_timestamp = 09:05 → query from 09:05 to now
+  - Result: Only new data ingested (efficient!)
+```
+
+### Error Handling Flow
+
+```
+API Call Failure
+  |
+  +-> Retry Strategy (3 attempts, exponential backoff)
+      |
+      +-> Success: Continue
+      |
+      +-> Failure after 3 attempts:
+          |
+          +-> Log error with details
+          +-> Continue with remaining tags (partial failure tolerance)
+          +-> Track failed tags for investigation
+
+Partial Batch Failure
+  |
+  +-> Parse batch response
+      |
+      +-> For each sub-response:
+          |
+          +-> Status 200: Process data
+          +-> Status 404: Log "tag not found", skip
+          +-> Status 500: Log "server error", skip
+      |
+      +-> Result: Successful tags ingested, failed tags logged
+
+Network Timeout
+  |
+  +-> Connection timeout (30s for GET, 60s for POST)
+      |
+      +-> Retry with exponential backoff
+      |
+      +-> If still fails: Log and raise exception
+```
+
 ## Architecture
 
 ```
@@ -381,20 +577,26 @@ osipi-connector/
 │   ├── test_event_frames.py
 │   ├── mock_pi_server.py                607 lines (FastAPI)
 │   └── fixtures/sample_responses.py     548 lines
+├── docs/                                Documentation files
+│   ├── CUSTOMER_EXAMPLES.md             Real-world use cases
+│   ├── pi_connector_dev.md              Full developer specification
+│   ├── pi_connector_test.md             Testing strategy
+│   ├── PROJECT_SUMMARY.md               Project completion summary
+│   ├── HACKATHON_GUIDE.md               Hackathon submission guide
+│   └── MOCK_PI_SERVER_DOCUMENTATION.md  Mock server API reference
 ├── requirements.txt                     17 dependencies
-├── README.md                            This file
-├── CUSTOMER_EXAMPLES.md                 Real-world use cases
-├── pi_connector_dev.md                  Full developer specification
-└── pi_connector_test.md                 Testing strategy
+└── README.md                            This file
 ```
 
 ## Documentation
 
 - **README.md** - This file (quick start and overview)
-- **pi_connector_dev.md** - Complete developer specification (1,750+ lines)
-- **pi_connector_test.md** - Comprehensive testing strategy (1,900+ lines)
-- **CUSTOMER_EXAMPLES.md** - Real-world customer use cases
-- **API_REFERENCE.md** - PI Web API endpoint documentation
+- **docs/pi_connector_dev.md** - Complete developer specification (1,750+ lines)
+- **docs/pi_connector_test.md** - Comprehensive testing strategy (1,900+ lines)
+- **docs/CUSTOMER_EXAMPLES.md** - Real-world customer use cases
+- **docs/PROJECT_SUMMARY.md** - Project completion summary
+- **docs/HACKATHON_GUIDE.md** - Hackathon submission guide
+- **docs/MOCK_PI_SERVER_DOCUMENTATION.md** - PI Web API endpoint documentation
 
 ## Competitive Advantages
 

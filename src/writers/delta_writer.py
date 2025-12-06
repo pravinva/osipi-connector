@@ -1,16 +1,28 @@
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import col, to_timestamp
 from pyspark.sql.types import *
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.catalog import TableInfo
+from typing import List, Optional
+import pandas as pd
 import logging
 
 class DeltaLakeWriter:
     """
     Writes PI data to Unity Catalog Delta tables
     Handles schema evolution, optimizations
+    Uses Databricks SDK for catalog management
     """
 
-    def __init__(self, spark: SparkSession, catalog: str, schema: str):
+    def __init__(
+        self,
+        spark: SparkSession,
+        workspace_client: WorkspaceClient,
+        catalog: str,
+        schema: str
+    ):
         self.spark = spark
+        self.workspace_client = workspace_client
         self.catalog = catalog
         self.schema = schema
         self.logger = logging.getLogger(__name__)
@@ -95,3 +107,41 @@ class DeltaLakeWriter:
             .mode("append") \
             .option("mergeSchema", "true") \
             .saveAsTable(full_table_name)
+
+        self.logger.info(f"Wrote {df.count()} events to {full_table_name}")
+
+    def get_table_info(self, table_name: str) -> Optional[TableInfo]:
+        """
+        Get table metadata using Databricks SDK
+
+        Args:
+            table_name: Table name (without catalog.schema prefix)
+
+        Returns:
+            TableInfo object or None if table doesn't exist
+        """
+        full_table_name = f"{self.catalog}.{self.schema}.{table_name}"
+
+        try:
+            table_info = self.workspace_client.tables.get(full_table_name)
+            return table_info
+        except Exception as e:
+            self.logger.warning(f"Table {full_table_name} not found: {e}")
+            return None
+
+    def list_tables(self) -> List[str]:
+        """
+        List all tables in the schema using Databricks SDK
+
+        Returns:
+            List of table names
+        """
+        try:
+            tables = self.workspace_client.tables.list(
+                catalog_name=self.catalog,
+                schema_name=self.schema
+            )
+            return [table.name for table in tables]
+        except Exception as e:
+            self.logger.warning(f"Error listing tables: {e}")
+            return []

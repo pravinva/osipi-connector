@@ -1,0 +1,82 @@
+# Databricks Asset Bundle Configuration for OSI PI Lakeflow Connector
+bundle:
+  name: osipi-lakeflow-connector
+
+# Development target
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://your-workspace.cloud.databricks.com
+
+  # Production target
+  prod:
+    mode: production
+    workspace:
+      host: https://your-workspace.cloud.databricks.com
+      root_path: /Workspace/production/osipi-connector
+
+# Resources
+resources:
+  # Connector job
+  jobs:
+    osipi_connector_job:
+      name: "OSI PI Connector - ${bundle.target}"
+
+      tasks:
+        - task_key: extract_pi_data
+          job_cluster_key: connector_cluster
+          notebook_task:
+            notebook_path: ./notebooks/connector_job.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: validate_data_quality
+          depends_on:
+            - task_key: extract_pi_data
+          job_cluster_key: connector_cluster
+          notebook_task:
+            notebook_path: ./notebooks/data_quality_check.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+      job_clusters:
+        - job_cluster_key: connector_cluster
+          new_cluster:
+            spark_version: 14.3.x-scala2.12
+            node_type_id: i3.xlarge
+            num_workers: 2
+            spark_conf:
+              spark.databricks.delta.preview.enabled: true
+
+      schedule:
+        quartz_cron_expression: "0 0 * * * ?"  # Hourly
+        timezone_id: "UTC"
+        pause_status: UNPAUSED
+
+# Variables
+variables:
+  catalog:
+    description: Unity Catalog name
+    default: main
+
+  schema:
+    description: Schema name for PI data
+    default: bronze
+
+  pi_web_api_url:
+    description: PI Web API endpoint URL
+    default: https://pi-server.company.com/piwebapi
+
+  pi_auth_type:
+    description: Authentication type (basic, kerberos, oauth)
+    default: basic
+
+# Include patterns
+include:
+  - "src/**/*.py"
+  - "notebooks/**/*.py"
+  - "config/**/*.yaml"
