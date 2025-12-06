@@ -667,11 +667,6 @@ Copyright 2025 Databricks. All rights reserved.
 
 Built for the Databricks Lakeflow Connector Hackathon.
 
-Special thanks to:
-- OSIsoft for PI Web API documentation
-- Industrial IoT community for use case validation
-- Databricks team for Lakeflow framework
-
 ---
 
 **Built for scale. Tested thoroughly. Production-ready today.**
