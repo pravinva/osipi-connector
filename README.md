@@ -15,7 +15,6 @@ Many industrial customers face constraints with existing SaaS solutions:
 - **Tag limits** (2,000-5,000 tags) vs actual needs (30,000+ tags)
 - **Forced summarization** (>5 min intervals) vs native granularity (1-second samples)
 - **Per-tag pricing** that becomes prohibitive at scale
-- **Cloud lock-in** (Azure-only) vs multi-cloud strategies
 
 **This connector removes those constraints:**
 - **Unlimited tags** - Handle 30K+ tags with batch controller optimization (100x performance)
