@@ -38,7 +38,8 @@ import requests
 
 # Start mock server in background
 print("Starting mock PI Web API server...")
-mock_server_path = "/Workspace/Shared/osipi-connector/tests/mock_pi_server"
+# Update this path to match your workspace location
+mock_server_path = "/Workspace/Users/pravin.varma@databricks.com/osipi-connector/tests/mock_pi_server.py"
 
 proc = subprocess.Popen(
     [sys.executable, mock_server_path],
