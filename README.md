@@ -1,11 +1,12 @@
 # PI Web API Lakeflow Connector
 
-**Production-ready Databricks Lakeflow connector for OSI PI System**
+**Production-ready Databricks Lakeflow connector for AVEVA PI Server**
 
-Ingests industrial IoT data from OSI PI servers into Databricks Unity Catalog at scale:
-- Time-series data (raw sensor values at native granularity)
-- PI Asset Framework hierarchy (asset metadata and relationships)
-- Event Frames (process events, batch runs, downtimes, alarms)
+Complete end-to-end solution for industrial IoT data ingestion into Databricks Unity Catalog:
+- **Lakeflow Connector** - Custom Python notebook for continuous data ingestion
+- **Mock PI Web API Server** - AVEVA-branded FastAPI server with 10,000 tags
+- **Live Dashboard** - Real-time monitoring of ingestion pipeline
+- **Unity Catalog Integration** - Bronze/Silver/Gold lakehouse architecture
 
 ## Why This Connector?
 
@@ -24,7 +25,50 @@ Many industrial customers face constraints with existing SaaS solutions:
 
 ## Quick Start
 
-### Installation (with uv - 10x faster)
+### 1. Run the Demo App (Hackathon)
+
+**Start the AVEVA PI Web API + Dashboard:**
+```bash
+# Set environment variables
+export DATABRICKS_HOST="https://e2-demo-field-eng.cloud.databricks.com"
+export DATABRICKS_TOKEN="your_token"
+export DATABRICKS_WAREHOUSE_ID="4b9b953939869799"
+export MOCK_PI_TAG_COUNT=10000  # Scale to 10,000 tags
+
+# Start the server
+.venv/bin/python app/main.py
+```
+
+**Open in browser:**
+- PI Web API: http://localhost:8010
+- Dashboard: http://localhost:8010/ingestion
+
+### 2. Run the Lakeflow Connector
+
+**In Databricks workspace:**
+1. Navigate to `/Users/your.email@databricks.com/OSIPI_Lakeflow_Connector`
+2. Click "Run All" to execute the connector
+3. Watch it discover tags, extract data, and load to Delta Lake
+4. View results in `osipi.bronze.pi_timeseries`
+
+### 3. View Ingested Data
+
+```sql
+-- Check total rows
+SELECT COUNT(*) FROM osipi.bronze.pi_timeseries;
+
+-- View by plant and sensor
+SELECT plant, sensor_type, COUNT(*) as data_points
+FROM osipi.bronze.pi_timeseries
+GROUP BY plant, sensor_type;
+
+-- Check data quality
+SELECT
+  SUM(CASE WHEN quality_good THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as quality_pct
+FROM osipi.bronze.pi_timeseries;
+```
+
+### 4. Installation (for development)
 
 ```bash
 # Install uv package manager
@@ -563,7 +607,20 @@ mypy src/
 
 ```
 osipi-connector/
-├── src/                                 (~940 lines of production code)
+├── app/                                 Hackathon Demo App
+│   ├── main.py                          FastAPI server (PI API + Dashboard)
+│   ├── templates/
+│   │   ├── pi_home.html                 AVEVA-branded landing page
+│   │   └── ingestion.html               Real-time monitoring dashboard
+│   └── static/
+│       ├── css/pi_style.css             AVEVA color scheme
+│       ├── js/dashboard.js              Live charts with Chart.js
+│       └── images/aveva_logo.png        AVEVA branding
+│
+├── notebooks/                           Lakeflow Connector Notebooks
+│   └── OSIPI_Lakeflow_Connector.py      Main ingestion notebook
+│
+├── src/                                 Core Connector Library (~940 lines)
 │   ├── auth/pi_auth_manager.py          69 lines, 5 tests
 │   ├── client/pi_web_api_client.py      85 lines, 16 tests
 │   ├── extractors/
@@ -573,22 +630,29 @@ osipi-connector/
 │   ├── checkpoints/checkpoint_manager.py 108 lines
 │   ├── writers/delta_writer.py          107 lines
 │   └── connector/pi_lakeflow_connector.py 172 lines
-├── tests/                               (55 tests passing)
+│
+├── tests/                               88 tests passing
 │   ├── test_auth.py
 │   ├── test_client.py
 │   ├── test_timeseries.py
 │   ├── test_af_extraction.py
 │   ├── test_event_frames.py
+│   ├── test_alarm_extractor.py
+│   ├── test_performance_optimizer.py
 │   ├── mock_pi_server.py                607 lines (FastAPI)
 │   └── fixtures/sample_responses.py     548 lines
-├── docs/                                Documentation files
+│
+├── docs/                                Documentation
 │   ├── CUSTOMER_EXAMPLES.md             Real-world use cases
-│   ├── pi_connector_dev.md              Full developer specification
+│   ├── pi_connector_dev.md              Developer specification
 │   ├── pi_connector_test.md             Testing strategy
 │   ├── PROJECT_SUMMARY.md               Project completion summary
-│   ├── HACKATHON_GUIDE.md               Hackathon submission guide
-│   └── MOCK_PI_SERVER_DOCUMENTATION.md  Mock server API reference
-├── requirements.txt                     17 dependencies
+│   ├── HACKATHON_DEMO_GUIDE.md          Hackathon demo walkthrough
+│   └── MOCK_PI_SERVER_DOCUMENTATION.md  Mock API reference
+│
+├── pipeline_config.csv                  Pipeline configuration (5 pipelines)
+├── databricks.yml                       DABs configuration (coming soon)
+├── requirements.txt                     Python dependencies
 └── README.md                            This file
 ```
 

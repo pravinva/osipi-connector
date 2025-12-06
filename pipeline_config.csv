@@ -1,0 +1,6 @@
+pipeline_name,plant_filter,sensor_types,schedule_cron,batch_size,priority
+high_frequency_critical,Sydney|Melbourne,Temp|Pres,*/15 * * * *,100,high
+high_frequency_flow,Sydney|Melbourne,Flow|Level,*/15 * * * *,100,high
+standard_frequency,Brisbane|Perth,Temp|Pres|Flow|Level,*/30 * * * *,200,medium
+low_frequency_power,*,Power|Voltage|Current,0 * * * *,500,low
+low_frequency_speed,*,Speed,0 * * * *,500,low
