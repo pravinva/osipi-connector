@@ -48,7 +48,18 @@ proc = subprocess.Popen(
 )
 
 # Wait for server to start
-time.sleep(5)
+print(f"Waiting for server to start (PID: {proc.pid})...")
+time.sleep(8)
+
+# Check if process is still running
+poll_status = proc.poll()
+if poll_status is not None:
+    # Process died
+    stdout, stderr = proc.communicate()
+    print(f"❌ Server process exited with code {poll_status}")
+    print(f"\nSTDOUT:\n{stdout.decode()}")
+    print(f"\nSTDERR:\n{stderr.decode()}")
+    raise RuntimeError("Mock server failed to start")
 
 # Test connection
 try:
@@ -57,11 +68,18 @@ try:
         print("✅ Mock PI server started successfully!")
         print(f"   Server running on: http://localhost:8000")
         print(f"   Process ID: {proc.pid}")
+        print(f"\n   Note: This URL only works from within the cluster, not from your browser")
     else:
         print(f"⚠️  Server responded with status: {response.status_code}")
 except Exception as e:
     print(f"❌ Could not connect to server: {e}")
-    print("   Trying to start anyway...")
+    # Try to get process output for debugging
+    if proc.poll() is None:
+        print("   Process is still running but not responding")
+    else:
+        stdout, stderr = proc.communicate()
+        print(f"\nProcess output:\nSTDOUT: {stdout.decode()}\nSTDERR: {stderr.decode()}")
+    raise
 
 # COMMAND ----------
 
