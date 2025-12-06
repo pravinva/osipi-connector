@@ -39,19 +39,39 @@ tag_types = [
 ]
 
 # Generate tags for 3 plants, 4 units each, multiple sensors
-# Spec requirement: "Add 100 more for realistic testing" (lines 1361)
-plant_names = ["Sydney", "Melbourne", "Brisbane", "Perth"]
-unit_count = 4
+# Configurable scale: Set TARGET_TAG_COUNT for load-balanced pipeline testing
+import os
+TARGET_TAG_COUNT = int(os.getenv("MOCK_PI_TAG_COUNT", "128"))  # Default 128, set to 30000 for scale test
+
+# Calculate required plants/units to reach target
+# Formula: plants × units × 8 sensor types = target tags
+# For 30,000 tags: need ~60 plants × 63 units = 30,240 tags
+if TARGET_TAG_COUNT <= 200:
+    # Small scale (demo): 4 plants × 4 units × 8 sensors = 128 tags
+    plant_names = ["Sydney", "Melbourne", "Brisbane", "Perth"]
+    unit_count = 4
+elif TARGET_TAG_COUNT <= 1000:
+    # Medium scale: 10 plants × 13 units × 8 sensors = 1,040 tags
+    plant_names = [f"Plant_{i:02d}" for i in range(1, 11)]
+    unit_count = 13
+elif TARGET_TAG_COUNT <= 10000:
+    # Large scale: 25 plants × 50 units × 8 sensors = 10,000 tags
+    plant_names = [f"Site_{i:03d}" for i in range(1, 26)]
+    unit_count = 50
+else:
+    # Massive scale: 60 plants × 63 units × 8 sensors = 30,240 tags
+    plant_names = [f"Facility_{i:03d}" for i in range(1, 61)]
+    unit_count = 63
 
 tag_id = 1
 for plant in plant_names:
     for unit in range(1, unit_count + 1):
         for sensor_type, units, min_val, max_val, noise in tag_types:
-            tag_webid = f"F1DP-{plant}-U{unit}-{sensor_type[:4]}-{tag_id:04d}"
+            tag_webid = f"F1DP-{plant}-U{unit:03d}-{sensor_type[:4]}-{tag_id:06d}"
             base_value = random.uniform(min_val, max_val)
 
             MOCK_TAGS[tag_webid] = {
-                "name": f"{plant}_Unit{unit}_{sensor_type}_PV",
+                "name": f"{plant}_Unit{unit:03d}_{sensor_type}_PV",
                 "units": units,
                 "base": base_value,
                 "min": min_val,
@@ -61,11 +81,20 @@ for plant in plant_names:
                 "plant": plant,
                 "unit": unit,
                 "descriptor": f"{sensor_type} sensor at {plant} Plant Unit {unit}",
-                "path": f"\\\\{plant}\\Unit{unit}\\{sensor_type}"
+                "path": f"\\\\{plant}\\Unit{unit:03d}\\{sensor_type}"
             }
             tag_id += 1
 
-print(f"Generated {len(MOCK_TAGS)} mock PI tags")
+            # Stop if we've hit target (for precise control)
+            if len(MOCK_TAGS) >= TARGET_TAG_COUNT:
+                break
+        if len(MOCK_TAGS) >= TARGET_TAG_COUNT:
+            break
+    if len(MOCK_TAGS) >= TARGET_TAG_COUNT:
+        break
+
+print(f"Generated {len(MOCK_TAGS)} mock PI tags (target: {TARGET_TAG_COUNT})")
+print(f"Configuration: {len(plant_names)} plants × {unit_count} units × 8 sensor types")
 
 # Mock AF Hierarchy - Realistic industrial structure
 MOCK_AF_HIERARCHY = {
@@ -77,8 +106,12 @@ MOCK_AF_HIERARCHY = {
     }
 }
 
-# Build hierarchical structure (4 plants, 4 units per plant, 4 equipment per unit = 64 elements)
-for plant in plant_names:
+# Build hierarchical structure (scales with tag count)
+# For massive scale, only create AF hierarchy for subset (performance)
+af_plant_limit = min(len(plant_names), 10) if TARGET_TAG_COUNT > 10000 else len(plant_names)
+af_unit_limit = min(unit_count, 10) if TARGET_TAG_COUNT > 10000 else unit_count
+
+for plant in plant_names[:af_plant_limit]:
     plant_element = {
         "WebId": f"F1DP-Site-{plant}",
         "Name": f"{plant}_Plant",
@@ -89,7 +122,7 @@ for plant in plant_names:
         "Elements": []
     }
 
-    for unit in range(1, unit_count + 1):
+    for unit in range(1, min(af_unit_limit + 1, unit_count + 1)):
         unit_element = {
             "WebId": f"F1DP-Unit-{plant}-{unit}",
             "Name": f"Unit_{unit}",
