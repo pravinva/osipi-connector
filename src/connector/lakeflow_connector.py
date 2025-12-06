@@ -86,6 +86,10 @@ class PILakeflowConnector:
         self.session = requests.Session()
         self.session.auth = self.auth
 
+        # Apply OAuth headers if OAuth authentication
+        if auth_type == 'oauth':
+            self.session.headers.update(self.headers)
+
         # Test connection
         self._test_connection()
 

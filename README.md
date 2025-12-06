@@ -612,19 +612,43 @@ osipi-connector/
 | AF Support | Limited or extra cost | Included | Complete metadata |
 | Event Frames | Often missing | Included | Process traceability |
 
+## Advanced Features
+
+### Alarm History Extraction
+- Extract notification rules and alarm configurations
+- Historical alarm events with timestamps
+- Active alarm monitoring
+- Alarm summary statistics for compliance
+
+### WebSocket Streaming (Real-Time)
+- Sub-second latency for real-time data
+- Persistent WebSocket connections
+- Buffered writes to Delta Lake
+- Supports 10K+ updates per second
+
+### Performance Optimization (100K+ Tags)
+- Adaptive batch sizing (dynamically adjusts based on performance)
+- Parallel processing with connection pooling
+- Memory-efficient iteration for massive datasets
+- Rate limiting to prevent server overload
+
+**See [Advanced Features Documentation](docs/ADVANCED_FEATURES.md) for detailed usage.**
+
 ## Roadmap
 
 ### v1.0 (Current - Hackathon Submission)
 - Core 8 modules implemented
 - 55+ tests passing
-- Production-ready for industrial deployments
-- Complete documentation
-
-### v1.1 (Post-Launch)
 - Alarm history extraction
-- Data quality monitoring dashboard
 - WebSocket streaming support
 - Performance optimization for 100K+ tags
+- Load-balanced pipeline deployment
+- Complete documentation
+
+### v1.2 (Post-Launch)
+- Auto-discovery of tags from PI AF
+- Data quality monitoring dashboard
+- Advanced late-data handling
 
 ### v2.0 (Community)
 - Ignition historian connector
