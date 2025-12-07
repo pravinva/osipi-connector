@@ -149,6 +149,68 @@ connector.run()
 # - main.bronze.pi_event_frames (process events)
 ```
 
+## Advanced Features
+
+Beyond basic ingestion, this connector includes production-ready MLOps capabilities:
+
+### 1. Auto-Discovery of Tags (`auto_discovery.py`)
+Automatically discovers all PI tags by traversing the Asset Framework hierarchy:
+- Recursive traversal of AF element tree
+- Filter by template type (e.g., only "Flow Meters")
+- Filter by attribute patterns
+- Exclude test/dev tags
+- Export to CSV or Unity Catalog
+- Supports 10,000+ tag discovery
+
+```bash
+python auto_discovery.py
+# Output: discovered_tags.csv with 10,000 tags
+```
+
+### 2. Data Quality Monitoring (`data_quality_monitor.py`)
+Comprehensive data quality monitoring with 6 automated checks:
+- **Null Rate**: Alert if >5% null values
+- **Freshness**: Alert if data >60 minutes old
+- **Volume Anomaly**: Detect spikes/drops using z-score (3σ threshold)
+- **Quality Flags**: Alert if <90% good quality
+- **Duplicates**: Alert if >1% duplicate records
+- **Schema Validation**: Detect schema drift
+
+```bash
+export DATABRICKS_HOST="https://your-workspace.cloud.databricks.com"
+export DATABRICKS_TOKEN="your_token"
+export DATABRICKS_WAREHOUSE_ID="your_warehouse_id"
+
+python data_quality_monitor.py
+```
+
+### 3. Late Data Handling (`late_data_handler.py`)
+Handles data that arrives late (out-of-order timestamps):
+- **Scenarios**: Network outage recovery, manual backfills, delayed events, clock sync issues
+- **Strategy**: Delta Lake MERGE to update or insert late arrivals
+- **Audit Trail**: Track original ingestion timestamp for compliance
+- **Optimization**: Auto-optimize affected partitions with ZORDER
+
+```bash
+python late_data_handler.py
+# Detects late arrivals, merges updates, optimizes partitions
+```
+
+### 4. PI Notifications Integration (`pi_notifications_integration.py`)
+Syncs PI Notifications service with Databricks for unified alerting:
+- Extract notification rules from PI Server
+- Extract notification trigger history
+- Sync to Unity Catalog (`osipi.bronze.pi_notifications`)
+- Create Databricks SQL Alerts based on PI notifications
+- Monitor active notifications and acknowledgments
+
+```bash
+export PI_SERVER_URL="http://localhost:8010"
+python pi_notifications_integration.py
+```
+
+**For complete documentation, usage examples, and integration architecture, see [ADVANCED_FEATURES.md](ADVANCED_FEATURES.md).**
+
 ## Code Flow
 
 ### Execution Flow
@@ -677,6 +739,11 @@ osipi-connector/
 │   └── MOCK_PI_SERVER_DOCUMENTATION.md  Mock API reference
 │
 ├── REAL_VS_MOCK_DATA.md                 Data sources breakdown (real UC vs mock)
+├── ADVANCED_FEATURES.md                 Advanced MLOps features guide
+├── auto_discovery.py                    Auto-discover tags from PI AF
+├── data_quality_monitor.py              6 automated quality checks
+├── late_data_handler.py                 Out-of-order data handling
+├── pi_notifications_integration.py      PI alerts sync to Databricks
 ├── pipeline_config.csv                  Pipeline configuration (5 pipelines)
 ├── databricks.yml                       DABs configuration (coming soon)
 ├── requirements.txt                     Python dependencies
