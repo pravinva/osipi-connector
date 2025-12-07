@@ -15,13 +15,14 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any
 import random
 import os
+import requests
 from databricks.sdk import WorkspaceClient
 
 # Import the existing mock PI server app
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from tests.mock_pi_server import app as pi_app
+from tests.mock_pi_server import app as pi_app, MOCK_EVENT_FRAMES
 
 # Use the existing PI app and add UI routes
 app = pi_app
@@ -36,6 +37,9 @@ templates = Jinja2Templates(directory="app/templates")
 DATABRICKS_HOST = os.getenv("DATABRICKS_HOST", "https://e2-demo-field-eng.cloud.databricks.com")
 DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN", "")
 DATABRICKS_WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID", "4b9b953939869799")
+
+# PI Server URL (localhost since this app IS the PI server)
+PI_SERVER_URL = "http://localhost:8010"
 
 def query_databricks(sql: str):
     """Query Databricks and return results"""
@@ -290,15 +294,59 @@ async def get_pipeline_health() -> List[Dict[str, Any]]:
 
 @app.get("/api/ingestion/recent_events")
 async def get_recent_events() -> List[Dict[str, Any]]:
-    """Get recent ingestion events/logs."""
-    events = [
+    """Get recent alarm events from PI Web API event frames."""
+    try:
+        # Access event frames directly from mock server (avoid deadlock)
+        if not MOCK_EVENT_FRAMES:
+            return get_fallback_events()
+
+        end_time = datetime.utcnow()
+        events = []
+
+        # Filter last 24 hours and take most recent 10
+        for ef in sorted(MOCK_EVENT_FRAMES, key=lambda x: x["StartTime"], reverse=True)[:10]:
+            # Calculate time ago
+            start = datetime.fromisoformat(ef["StartTime"].replace("Z", ""))
+            time_diff = end_time - start
+
+            if time_diff.seconds < 60:
+                time_ago = f"{time_diff.seconds} sec ago"
+            elif time_diff.seconds < 3600:
+                time_ago = f"{time_diff.seconds // 60} min ago"
+            elif time_diff.days < 1:
+                time_ago = f"{time_diff.seconds // 3600} hr ago"
+            else:
+                time_ago = f"{time_diff.days} day ago"
+
+            # Determine event type based on alarm priority
+            priority = ef.get("Attributes", {}).get("Priority", "Medium")
+            event_type = "warning" if priority in ["High", "Critical"] else "info"
+
+            alarm_type = ef.get("Attributes", {}).get("AlarmType", "Unknown")
+            element = ef.get("Description", ef.get("Name", "Unknown"))
+
+            events.append({
+                "time": time_ago,
+                "type": event_type,
+                "message": f"{alarm_type} alarm on {element} (Priority: {priority})"
+            })
+
+        return events if events else get_fallback_events()
+
+    except Exception as e:
+        print(f"Error fetching event frames: {e}")
+        return get_fallback_events()
+
+
+def get_fallback_events() -> List[Dict[str, Any]]:
+    """Fallback events if event frames are unavailable."""
+    return [
         {"time": "2 min ago", "type": "success", "message": "Pipeline 1 completed: 125,430 records ingested"},
         {"time": "8 min ago", "type": "info", "message": "Pipeline 2 started"},
         {"time": "15 min ago", "type": "success", "message": "Event frames processed: 12 batch runs"},
         {"time": "22 min ago", "type": "warning", "message": "Tag F1DP-TAG-042: Quality flag questionable"},
         {"time": "28 min ago", "type": "success", "message": "AF hierarchy refreshed: 524 elements"}
     ]
-    return events
 
 
 # ============================================================================
