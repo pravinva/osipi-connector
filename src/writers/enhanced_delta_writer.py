@@ -60,7 +60,12 @@ class EnhancedDeltaWriter:
             # Get data timestamp
             data_timestamp = record.get('timestamp')
             if isinstance(data_timestamp, str):
-                data_timestamp = datetime.fromisoformat(data_timestamp.replace('Z', ''))
+                try:
+                    data_timestamp = datetime.fromisoformat(data_timestamp.replace('Z', ''))
+                except (ValueError, AttributeError):
+                    # Skip if invalid timestamp string
+                    enriched.append(enriched_record)
+                    continue
             elif not isinstance(data_timestamp, datetime):
                 # Skip if no valid timestamp
                 enriched.append(enriched_record)
