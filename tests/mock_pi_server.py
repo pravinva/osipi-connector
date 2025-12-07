@@ -6,20 +6,138 @@ Run with: python tests/mock_pi_server.py
 Access at: http://localhost:8000
 """
 
-from fastapi import FastAPI, Query, HTTPException, Header
+from fastapi import FastAPI, Query, HTTPException, Header, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 import random
 import math
 import uvicorn
 from pydantic import BaseModel
+import asyncio
+import json
+import os
+from databricks.sdk import WorkspaceClient
+from collections import deque
+import threading
 
 app = FastAPI(
     title="Mock PI Web API Server",
     description="Simulated PI Web API for development/testing",
     version="1.0"
 )
+
+# Add CORS middleware for browser access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ============================================================================
+# UNITY CATALOG STREAMING WRITER
+# ============================================================================
+
+# Lakeflow Streaming Configuration
+UC_CATALOG = os.getenv("UC_CATALOG", "osipi")
+UC_SCHEMA = os.getenv("UC_SCHEMA", "bronze")
+UC_TABLE = os.getenv("UC_TABLE", "pi_streaming_raw")
+UC_FULL_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.{UC_TABLE}"
+
+# Databricks connection
+DATABRICKS_HOST = os.getenv("DATABRICKS_HOST", "")
+DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN", "")
+DATABRICKS_WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID", "4b9b953939869799")
+
+# Lakeflow staging directory (simulating cloud storage for local dev)
+# In production, this would be s3://bucket/pi-streams/ or abfss://container@account.dfs.core.windows.net/pi-streams/
+LAKEFLOW_STAGING_PATH = os.getenv("LAKEFLOW_STAGING_PATH", "/tmp/lakeflow-pi-streams")
+
+# Streaming buffer configuration
+STREAM_BUFFER = deque(maxlen=1000)  # Buffer up to 1000 messages
+BUFFER_FLUSH_INTERVAL = 5  # Flush every 5 seconds (faster for testing)
+BUFFER_FLUSH_SIZE = 10  # Or when we hit 10 messages (smaller batches for Auto Loader)
+
+# Flag to enable/disable Lakeflow streaming
+LAKEFLOW_ENABLED = os.getenv("LAKEFLOW_ENABLED", "true").lower() == "true"
+
+def get_databricks_client():
+    """Get Databricks WorkspaceClient using env vars or CLI config."""
+    try:
+        if DATABRICKS_HOST and DATABRICKS_TOKEN:
+            return WorkspaceClient(host=DATABRICKS_HOST, token=DATABRICKS_TOKEN)
+        else:
+            # Use Databricks CLI config (~/.databrickscfg)
+            return WorkspaceClient()
+    except Exception as e:
+        print(f"⚠️  Failed to initialize Databricks client: {e}")
+        return None
+
+def flush_buffer_to_lakeflow():
+    """Flush buffered WebSocket messages to Lakeflow staging directory as JSON files."""
+    if not LAKEFLOW_ENABLED:
+        return
+
+    if len(STREAM_BUFFER) == 0:
+        return
+
+    try:
+        # Extract all messages from buffer
+        messages = []
+        while STREAM_BUFFER:
+            messages.append(STREAM_BUFFER.popleft())
+
+        if not messages:
+            return
+
+        print(f"💾 Flushing {len(messages)} WebSocket messages to Lakeflow staging...")
+
+        # Ensure staging directory exists
+        os.makedirs(LAKEFLOW_STAGING_PATH, exist_ok=True)
+
+        # Write messages as newline-delimited JSON file
+        # Auto Loader can efficiently process JSONL files
+        timestamp_ms = int(datetime.now().timestamp() * 1000)
+        batch_id = f"{timestamp_ms}_{len(messages)}"
+        output_file = f"{LAKEFLOW_STAGING_PATH}/pi_stream_{batch_id}.json"
+
+        with open(output_file, 'w') as f:
+            for msg in messages:
+                # Write each message as a JSON line (JSONL format)
+                json.dump(msg, f)
+                f.write('\n')
+
+        print(f"✅ Wrote {len(messages)} messages to {output_file}")
+        print(f"📂 Lakeflow staging: {LAKEFLOW_STAGING_PATH}")
+
+    except Exception as e:
+        print(f"❌ Error flushing to Lakeflow staging: {e}")
+        import traceback
+        traceback.print_exc()
+
+async def buffer_flusher():
+    """Background task to periodically flush buffer to Lakeflow staging."""
+    while True:
+        await asyncio.sleep(BUFFER_FLUSH_INTERVAL)
+        if len(STREAM_BUFFER) >= BUFFER_FLUSH_SIZE or len(STREAM_BUFFER) > 0:
+            # Run flush in thread pool to avoid blocking event loop
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, flush_buffer_to_lakeflow)
+
+# Start buffer flusher on app startup
+@app.on_event("startup")
+async def startup_event():
+    if LAKEFLOW_ENABLED:
+        print(f"🚀 Starting Lakeflow streaming pipeline")
+        print(f"   Staging path: {LAKEFLOW_STAGING_PATH}")
+        print(f"   Target table: {UC_FULL_TABLE}")
+        print(f"   Flush interval: {BUFFER_FLUSH_INTERVAL}s or {BUFFER_FLUSH_SIZE} messages")
+        asyncio.create_task(buffer_flusher())
+    else:
+        print("ℹ️  Lakeflow streaming disabled (set LAKEFLOW_ENABLED=true to enable)")
 
 # ============================================================================
 # MOCK DATA STRUCTURES
@@ -644,6 +762,182 @@ def get_attribute_value(attr_webid: str):
             }
 
     raise HTTPException(status_code=404, detail="Attribute value not found")
+
+# ============================================================================
+# WEBSOCKET REAL-TIME STREAMING
+# ============================================================================
+
+# Active WebSocket subscriptions
+active_subscriptions = {}
+
+@app.websocket("/piwebapi/streams/channel")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time PI data streaming.
+
+    Protocol:
+    1. Client sends: {"Action": "Subscribe", "Resource": "streams/{webid}/value", "Parameters": {"updateRate": 1000}}
+    2. Server sends: {"Resource": "...", "Items": [{"Value": ..., "Timestamp": ..., "Good": true}]}
+    """
+    await websocket.accept()
+    client_id = id(websocket)
+    subscriptions = []
+    running = True
+
+    print(f"✅ WebSocket client {client_id} connected")
+
+    async def send_updates():
+        """Background task to send real-time updates"""
+        print(f"🚀 send_updates task started for client {client_id}")
+        while running:
+            try:
+                if len(subscriptions) > 0:
+                    print(f"🔄 Loop iteration, {len(subscriptions)} subscriptions")
+                    for subscription in subscriptions:
+                        tag_webid = subscription['tag_webid']
+
+                        # Get current value from tag
+                        if tag_webid in MOCK_TAGS:
+                            print(f"🔔 Sending update for {tag_webid}")
+                            tag = MOCK_TAGS[tag_webid]
+
+                            # Get or initialize current value
+                            if 'current_value' not in tag:
+                                tag['current_value'] = tag['base']
+
+                            current_value = tag['current_value']
+
+                            # Generate realistic fluctuation
+                            min_val = tag['min']
+                            max_val = tag['max']
+                            noise = tag['noise']
+                            change = random.gauss(0, noise / 5)
+                            new_value = max(min_val, min(max_val, current_value + change))
+                            tag['current_value'] = new_value
+
+                            # Quality flags (95% good, 3% questionable, 2% substituted)
+                            quality_roll = random.random()
+                            good = quality_roll < 0.95
+                            questionable = 0.95 <= quality_roll < 0.98
+                            substituted = quality_roll >= 0.98
+
+                            # Send update
+                            response = {
+                                "Resource": f"streams/{tag_webid}/value",
+                                "Items": [{
+                                    "Value": round(new_value, 2),
+                                    "UnitsAbbreviation": tag['units'],
+                                    "Timestamp": datetime.now().isoformat() + "Z",
+                                    "Good": good,
+                                    "Questionable": questionable,
+                                    "Substituted": substituted
+                                }]
+                            }
+
+                            try:
+                                await websocket.send_json(response)
+                                print(f"✅ Successfully sent update to client {client_id}")
+
+                                # Buffer message for Unity Catalog streaming
+                                if LAKEFLOW_ENABLED:
+                                    buffer_msg = {
+                                        'tag_webid': tag_webid,
+                                        'tag_name': tag['name'],
+                                        'timestamp': response['Items'][0]['Timestamp'],
+                                        'value': new_value,
+                                        'units': tag['units'],
+                                        'quality_good': good,
+                                        'quality_questionable': questionable,
+                                        'quality_substituted': substituted,
+                                        'ingestion_timestamp': datetime.now().isoformat() + "Z",
+                                        'sensor_type': tag['sensor_type'],
+                                        'plant': tag['plant'],
+                                        'unit': tag['unit']
+                                    }
+                                    STREAM_BUFFER.append(buffer_msg)
+                                    print(f"📦 Buffered message ({len(STREAM_BUFFER)} in buffer)")
+
+                            except Exception as send_error:
+                                print(f"❌ Failed to send: {send_error}")
+                                return  # Exit if WebSocket is broken
+                        else:
+                            print(f"⚠️  Tag {tag_webid} not found in MOCK_TAGS")
+            except Exception as e:
+                print(f"❌ Exception in send_updates loop: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
+
+            # Wait 1 second before next update
+            await asyncio.sleep(1.0)
+            print(f"💤 Slept 1 second, looping back...")
+
+    async def receive_messages():
+        """Handle incoming subscription messages"""
+        nonlocal running
+        try:
+            while running:
+                data = await websocket.receive_text()
+                message = json.loads(data)
+
+                action = message.get('Action')
+
+                if action == 'Subscribe':
+                    resource = message.get('Resource', '')
+                    parameters = message.get('Parameters', {})
+                    update_rate = parameters.get('updateRate', 1000)
+
+                    # Extract tag WebID from resource (e.g., "streams/F1DP-Loy_Yang_A-U001-Temp-000001/value")
+                    if 'streams/' in resource:
+                        tag_webid = resource.split('streams/')[1].split('/')[0]
+
+                        subscriptions.append({
+                            'tag_webid': tag_webid,
+                            'update_rate': update_rate
+                        })
+
+                        print(f"📡 Client {client_id} subscribed to {tag_webid} ({update_rate}ms)")
+
+                        # Send confirmation
+                        await websocket.send_json({
+                            "Action": "Subscribed",
+                            "Resource": resource,
+                            "Status": "Success"
+                        })
+
+                elif action == 'Unsubscribe':
+                    resource = message.get('Resource', '')
+                    if 'streams/' in resource:
+                        tag_webid = resource.split('streams/')[1].split('/')[0]
+                        subscriptions[:] = [s for s in subscriptions if s['tag_webid'] != tag_webid]
+                        print(f"🔌 Client {client_id} unsubscribed from {tag_webid}")
+
+        except WebSocketDisconnect:
+            print(f"🔌 WebSocket client {client_id} disconnected")
+            running = False
+        except Exception as e:
+            print(f"❌ WebSocket error for client {client_id}: {e}")
+            running = False
+
+    # Run both tasks concurrently
+    try:
+        sender = asyncio.create_task(send_updates())
+        receiver = asyncio.create_task(receive_messages())
+
+        # Wait for either task to complete (which means error or disconnect)
+        done, pending = await asyncio.wait(
+            [sender, receiver],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+
+        # Cancel remaining tasks
+        for task in pending:
+            task.cancel()
+
+    except Exception as e:
+        print(f"❌ WebSocket handler error: {e}")
+    finally:
+        running = False
+        print(f"🏁 WebSocket handler for client {client_id} finished")
 
 @app.get("/health")
 def health_check():

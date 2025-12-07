@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple WebSocket Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #00ff00; }
+        #messages { border: 1px solid #00ff00; padding: 10px; height: 400px; overflow-y: scroll; }
+        .msg { margin: 5px 0; }
+        button { padding: 10px 20px; margin: 5px; font-size: 16px; }
+    </style>
+</head>
+<body>
+    <h2>WebSocket Test - http://localhost:8010</h2>
+    <button onclick="connect()">CONNECT</button>
+    <button onclick="subscribe()">SUBSCRIBE</button>
+    <button onclick="disconnect()">DISCONNECT</button>
+    <div id="messages"></div>
+
+    <script>
+        let ws = null;
+        const messages = document.getElementById('messages');
+
+        function log(msg) {
+            const div = document.createElement('div');
+            div.className = 'msg';
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            messages.insertBefore(div, messages.firstChild);
+            console.log(msg);
+        }
+
+        function connect() {
+            ws = new WebSocket('ws://localhost:8010/piwebapi/streams/channel');
+
+            ws.onopen = () => {
+                log('✅ CONNECTED');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                log('📥 MESSAGE: ' + JSON.stringify(data, null, 2));
+            };
+
+            ws.onerror = (error) => {
+                log('❌ ERROR: ' + error);
+            };
+
+            ws.onclose = () => {
+                log('🔌 CLOSED');
+            };
+        }
+
+        function subscribe() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('❌ Not connected!');
+                return;
+            }
+
+            const msg = {
+                'Action': 'Subscribe',
+                'Resource': 'streams/F1DP-Eraring-U001-Temp-000001/value',
+                'Parameters': {'updateRate': 1000}
+            };
+
+            ws.send(JSON.stringify(msg));
+            log('📤 SENT SUBSCRIPTION');
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+    </script>
+</body>
+</html>

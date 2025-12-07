@@ -244,104 +244,90 @@ class PIWebSocketClient:
             logger.error(f"Error handling WebSocket message: {e}")
 
 
-class StreamingBuffer:
-    """
-    Buffer for streaming data before writing to Delta Lake.
-
-    Accumulates streaming updates and flushes to storage periodically.
-    """
-
-    def __init__(
-        self,
-        flush_interval_seconds: int = 60,
-        max_buffer_size: int = 10000
-    ):
-        """
-        Initialize streaming buffer.
-
-        Args:
-            flush_interval_seconds: Seconds between automatic flushes
-            max_buffer_size: Maximum records before forcing flush
-        """
-        self.buffer: List[Dict[str, Any]] = []
-        self.flush_interval = flush_interval_seconds
-        self.max_buffer_size = max_buffer_size
-        self.last_flush = datetime.now()
-
-    def add_record(self, tag_webid: str, data: Dict[str, Any]):
-        """
-        Add record to buffer.
-
-        Args:
-            tag_webid: Tag WebID for the data
-            data: Data record with timestamp and value
-        """
-        record = {
-            'tag_webid': tag_webid,
-            **data
-        }
-        self.buffer.append(record)
-
-    def should_flush(self) -> bool:
-        """
-        Check if buffer should be flushed.
-
-        Returns:
-            True if flush is needed
-        """
-        elapsed = (datetime.now() - self.last_flush).total_seconds()
-        return (
-            len(self.buffer) >= self.max_buffer_size or
-            elapsed >= self.flush_interval
-        )
-
-    def get_and_clear(self) -> List[Dict[str, Any]]:
-        """
-        Get buffered records and clear buffer.
-
-        Returns:
-            List of buffered records
-        """
-        records = self.buffer.copy()
-        self.buffer.clear()
-        self.last_flush = datetime.now()
-        return records
+# StreamingBuffer moved to src/writers/streaming_delta_writer.py
+# Import it from there for integration with Delta Lake
 
 
-# Example usage
+# Example usage with REAL Databricks connection
 async def example_streaming_usage():
     """
-    Example of how to use the WebSocket streaming client.
+    Example of WebSocket streaming with Delta Lake integration.
+
+    Uses real Databricks configuration (never mock data):
+    - Databricks CLI config (~/.databrickscfg) for authentication
+    - Warehouse ID: 4b9b953939869799
+    - Works from laptop or Databricks workspace
     """
-    # Initialize client
+    from pyspark.sql import SparkSession
+    from src.writers.streaming_delta_writer import StreamingDeltaWriter, StreamingBuffer
+
+    # Initialize Spark session (uses Databricks CLI config automatically)
+    spark = SparkSession.builder \
+        .appName("PI WebSocket Streaming") \
+        .config("spark.databricks.service.server.enabled", "true") \
+        .getOrCreate()
+
+    # Initialize WebSocket client
     client = PIWebSocketClient(
         base_url='https://pi-server.com/piwebapi',
         username='user',
         password='pass'
     )
 
-    # Connect
+    # Connect to WebSocket
     await client.connect()
 
-    # Define callback for handling data
-    buffer = StreamingBuffer(flush_interval_seconds=60)
+    # Initialize Delta Lake writer (uses REAL Databricks, no mock data)
+    delta_writer = StreamingDeltaWriter(
+        spark=spark,
+        catalog='main',
+        schema='bronze',
+        table_name='pi_streaming_timeseries'
+    )
 
+    # Initialize buffer with Delta Lake writer
+    buffer = StreamingBuffer(
+        writer=delta_writer,
+        flush_interval_seconds=60,  # Flush every 60 seconds
+        max_buffer_size=10000       # Or when 10K records accumulated
+    )
+
+    # Define callback for handling streaming data
     def handle_data(tag_webid: str, data: Dict[str, Any]):
         print(f"Received: {tag_webid} = {data['value']} at {data['timestamp']}")
+
+        # Add to buffer
         buffer.add_record(tag_webid, data)
 
-        # Check if buffer should be flushed to Delta Lake
+        # Auto-flush if thresholds met
         if buffer.should_flush():
-            records = buffer.get_and_clear()
-            print(f"Flushing {len(records)} records to Delta Lake")
-            # TODO: Write to Delta Lake using DeltaLakeWriter
+            records_written = buffer.flush()
+            print(f"✅ Flushed {records_written} records to {delta_writer.full_table_name}")
 
     # Subscribe to tags
     tags = ['F1DP-TAG-001', 'F1DP-TAG-002', 'F1DP-TAG-003']
     await client.subscribe_to_multiple_tags(tags, handle_data)
 
-    # Listen for updates
-    await client.listen()
+    print(f"📡 Subscribed to {len(tags)} tags, streaming to Delta Lake...")
+    print(f"🎯 Target table: {delta_writer.full_table_name}")
+    print(f"⚙️  Warehouse: 4b9b953939869799 (from Databricks CLI config)")
+
+    # Listen for updates (blocks until connection closed)
+    try:
+        await client.listen()
+    except KeyboardInterrupt:
+        print("\n⚠️  Shutting down gracefully...")
+        # Force flush remaining buffer before exit
+        if buffer.buffer:
+            remaining = buffer.force_flush()
+            print(f"✅ Flushed final {remaining} records")
 
     # Cleanup
     await client.disconnect()
+
+    # Print final stats
+    stats = buffer.get_stats()
+    print(f"\n📊 Final Stats:")
+    print(f"   Total records written: {stats['total_records_written']}")
+    print(f"   Total flushes: {stats['total_flushes']}")
+    print(f"   Avg records/flush: {stats['avg_records_per_flush']:.1f}")

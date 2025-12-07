@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PI Events & Alarms Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #141E30 0%, #243B55 100%);
+            color: #fff;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 30px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        .header h1 {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+
+        .controls {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: end;
+        }
+
+        .control-group {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #ecf0f1;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            background: rgba(255,255,255,0.9);
+            font-size: 14px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #3498db;
+            color: white;
+        }
+
+        button:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-box {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: #bdc3c7;
+            margin-top: 5px;
+        }
+
+        .batch-count { color: #3498db; }
+        .alarm-count { color: #e74c3c; }
+        .maintenance-count { color: #f39c12; }
+        .downtime-count { color: #95a5a6; }
+
+        .events-grid {
+            display: grid;
+            gap: 15px;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        }
+
+        .event-card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 20px;
+            border-left: 5px solid;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .event-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .event-batch { border-left-color: #3498db; }
+        .event-alarm { border-left-color: #e74c3c; }
+        .event-maintenance { border-left-color: #f39c12; }
+        .event-downtime { border-left-color: #95a5a6; }
+
+        .event-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .event-icon {
+            font-size: 24px;
+        }
+
+        .event-type {
+            background: rgba(255,255,255,0.2);
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .event-name {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .event-time {
+            color: #95a5a6;
+            font-size: 13px;
+            margin-bottom: 5px;
+        }
+
+        .event-duration {
+            color: #ecf0f1;
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+
+        .event-location {
+            color: #3498db;
+            font-size: 13px;
+            margin-bottom: 15px;
+        }
+
+        .event-attributes {
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+
+        .attribute-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 3px 0;
+        }
+
+        .attribute-label {
+            color: #95a5a6;
+        }
+
+        .attribute-value {
+            color: #ecf0f1;
+            font-weight: 600;
+        }
+
+        .priority-high { color: #e74c3c; }
+        .priority-medium { color: #f39c12; }
+        .priority-low { color: #95a5a6; }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #95a5a6;
+        }
+
+        .no-events {
+            text-align: center;
+            padding: 60px;
+            color: #95a5a6;
+            font-size: 18px;
+        }
+
+        .filter-chips {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .filter-chip {
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            background: rgba(255,255,255,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .filter-chip.active {
+            background: #3498db;
+        }
+
+        .filter-chip:hover {
+            background: rgba(52, 152, 219, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚨 PI Events & Alarms Viewer</h1>
+            <p>Event Frames, Batch Runs, Alarms & Maintenance Events</p>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>Time Range:</label>
+                <select id="time-range" onchange="loadEvents()">
+                    <option value="1">Last 1 Hour</option>
+                    <option value="24">Last 24 Hours</option>
+                    <option value="168" selected>Last 7 Days</option>
+                    <option value="720">Last 30 Days</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label>Search Mode:</label>
+                <select id="search-mode">
+                    <option value="Overlapped" selected>Overlapped</option>
+                    <option value="Inclusive">Inclusive</option>
+                    <option value="Exact">Exact</option>
+                </select>
+            </div>
+
+            <div class="control-group" style="flex: 0 0 auto;">
+                <button onclick="loadEvents()">🔄 Refresh Events</button>
+            </div>
+        </div>
+
+        <div class="filter-chips">
+            <div class="filter-chip active" data-filter="all" onclick="filterEvents('all')">All Events</div>
+            <div class="filter-chip" data-filter="BatchRunTemplate" onclick="filterEvents('BatchRunTemplate')">🏭 Batch Runs</div>
+            <div class="filter-chip" data-filter="AlarmTemplate" onclick="filterEvents('AlarmTemplate')">🚨 Alarms</div>
+            <div class="filter-chip" data-filter="MaintenanceTemplate" onclick="filterEvents('MaintenanceTemplate')">🔧 Maintenance</div>
+            <div class="filter-chip" data-filter="DowntimeTemplate" onclick="filterEvents('DowntimeTemplate')">⏸️ Downtime</div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-number batch-count" id="batch-count">0</div>
+                <div class="stat-label">Batch Runs</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number alarm-count" id="alarm-count">0</div>
+                <div class="stat-label">Alarms</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number maintenance-count" id="maintenance-count">0</div>
+                <div class="stat-label">Maintenance</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number downtime-count" id="downtime-count">0</div>
+                <div class="stat-label">Downtime</div>
+            </div>
+        </div>
+
+        <div class="events-grid" id="events-container">
+            <div class="loading">Loading events...</div>
+        </div>
+    </div>
+
+    <script>
+        let allEvents = [];
+        let currentFilter = 'all';
+
+        async function loadEvents() {
+            const container = document.getElementById('events-container');
+            container.innerHTML = '<div class="loading">Loading events...</div>';
+
+            const timeRange = parseInt(document.getElementById('time-range').value);
+            const searchMode = document.getElementById('search-mode').value;
+
+            // Calculate time range
+            const end = new Date();
+            const start = new Date(end.getTime() - (timeRange * 60 * 60 * 1000));
+
+            const startTime = start.toISOString();
+            const endTime = end.toISOString();
+
+            const url = `http://localhost:8010/piwebapi/assetdatabases/F1DP-DB-Production/eventframes?startTime=${encodeURIComponent(startTime)}&endTime=${encodeURIComponent(endTime)}&searchMode=${searchMode}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                allEvents = data.Items || [];
+
+                if (allEvents.length === 0) {
+                    container.innerHTML = '<div class="no-events">📭 No events found in this time range</div>';
+                    updateStats();
+                    return;
+                }
+
+                // Sort by start time (newest first)
+                allEvents.sort((a, b) => new Date(b.StartTime) - new Date(a.StartTime));
+
+                updateStats();
+                displayEvents();
+            } catch (error) {
+                container.innerHTML = `<div class="no-events">❌ Error loading events: ${error.message}</div>`;
+            }
+        }
+
+        function displayEvents() {
+            const container = document.getElementById('events-container');
+            const filtered = currentFilter === 'all' ?
+                allEvents :
+                allEvents.filter(e => e.TemplateName === currentFilter);
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="no-events">No ${currentFilter.replace('Template', '')} events found</div>`;
+                return;
+            }
+
+            container.innerHTML = filtered.map(event => createEventCard(event)).join('');
+        }
+
+        function createEventCard(event) {
+            const type = event.TemplateName.replace('Template', '').toLowerCase();
+            const icon = getEventIcon(event.TemplateName);
+
+            const start = new Date(event.StartTime);
+            const end = new Date(event.EndTime);
+            const duration = formatDuration(end - start);
+
+            const attributes = event.Attributes || {};
+            const attributesHtml = Object.entries(attributes)
+                .map(([key, value]) => `
+                    <div class="attribute-row">
+                        <span class="attribute-label">${key}:</span>
+                        <span class="attribute-value ${getPriorityClass(key, value)}">${value}</span>
+                    </div>
+                `).join('');
+
+            return `
+                <div class="event-card event-${type}">
+                    <div class="event-header">
+                        <span class="event-icon">${icon}</span>
+                        <span class="event-type">${event.TemplateName.replace('Template', '')}</span>
+                    </div>
+                    <div class="event-name">${event.Name}</div>
+                    <div class="event-time">⏰ ${start.toLocaleString()}</div>
+                    <div class="event-duration">⏱️ Duration: ${duration}</div>
+                    <div class="event-location">📍 ${event.Description}</div>
+                    ${attributesHtml ? `<div class="event-attributes">${attributesHtml}</div>` : ''}
+                </div>
+            `;
+        }
+
+        function getEventIcon(template) {
+            const icons = {
+                'BatchRunTemplate': '🏭',
+                'AlarmTemplate': '🚨',
+                'MaintenanceTemplate': '🔧',
+                'DowntimeTemplate': '⏸️'
+            };
+            return icons[template] || '📋';
+        }
+
+        function getPriorityClass(key, value) {
+            if (key === 'Priority') {
+                if (value === 'High' || value === 'Critical') return 'priority-high';
+                if (value === 'Medium') return 'priority-medium';
+                return 'priority-low';
+            }
+            return '';
+        }
+
+        function formatDuration(ms) {
+            const minutes = Math.floor(ms / 60000);
+            const hours = Math.floor(minutes / 60);
+
+            if (hours > 24) {
+                const days = Math.floor(hours / 24);
+                return `${days}d ${hours % 24}h`;
+            }
+            if (hours > 0) {
+                return `${hours}h ${minutes % 60}m`;
+            }
+            return `${minutes}m`;
+        }
+
+        function updateStats() {
+            const counts = {
+                BatchRunTemplate: 0,
+                AlarmTemplate: 0,
+                MaintenanceTemplate: 0,
+                DowntimeTemplate: 0
+            };
+
+            allEvents.forEach(event => {
+                if (counts.hasOwnProperty(event.TemplateName)) {
+                    counts[event.TemplateName]++;
+                }
+            });
+
+            document.getElementById('batch-count').textContent = counts.BatchRunTemplate;
+            document.getElementById('alarm-count').textContent = counts.AlarmTemplate;
+            document.getElementById('maintenance-count').textContent = counts.MaintenanceTemplate;
+            document.getElementById('downtime-count').textContent = counts.DowntimeTemplate;
+        }
+
+        function filterEvents(filter) {
+            currentFilter = filter;
+
+            // Update active chip
+            document.querySelectorAll('.filter-chip').forEach(chip => {
+                chip.classList.toggle('active', chip.dataset.filter === filter);
+            });
+
+            displayEvents();
+        }
+
+        // Load events on page load
+        loadEvents();
+
+        // Auto-refresh every 30 seconds
+        setInterval(loadEvents, 30000);
+    </script>
+</body>
+</html>

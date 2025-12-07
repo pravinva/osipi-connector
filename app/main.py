@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
 import random
@@ -29,12 +30,15 @@ app = pi_app
 app.title = "PI Web API - Lakeflow Connector"
 app.description = "Mock PI Web API Server with Lakehouse Integration Dashboard"
 
+# CORS is already added in mock_pi_server.py, but we ensure it's applied
+# (middleware is additive in FastAPI)
+
 # Mount static files and templates
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
-# Initialize Databricks client for real data queries
-DATABRICKS_HOST = os.getenv("DATABRICKS_HOST", "https://e2-demo-field-eng.cloud.databricks.com")
+# Initialize Databricks client for real data queries (uses CLI config if env vars not set)
+DATABRICKS_HOST = os.getenv("DATABRICKS_HOST", "")
 DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN", "")
 DATABRICKS_WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID", "4b9b953939869799")
 
@@ -42,23 +46,32 @@ DATABRICKS_WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID", "4b9b953939869799
 PI_SERVER_URL = "http://localhost:8010"
 
 def query_databricks(sql: str):
-    """Query Databricks and return results"""
-    try:
-        if not DATABRICKS_TOKEN:
-            return None
+    """
+    Query Databricks and return results.
 
-        w = WorkspaceClient(host=DATABRICKS_HOST, token=DATABRICKS_TOKEN)
+    Uses Databricks CLI config (~/.databrickscfg) if env vars not set.
+    Warehouse: 4b9b953939869799 (default)
+    """
+    try:
+        # Initialize WorkspaceClient (uses CLI config if host/token not provided)
+        if DATABRICKS_HOST and DATABRICKS_TOKEN:
+            w = WorkspaceClient(host=DATABRICKS_HOST, token=DATABRICKS_TOKEN)
+        else:
+            # Use Databricks CLI config (~/.databrickscfg)
+            w = WorkspaceClient()
 
         stmt = w.statement_execution.execute_statement(
             statement=sql,
             warehouse_id=DATABRICKS_WAREHOUSE_ID,
-            wait_timeout="10s"
+            wait_timeout="30s"
         )
 
         if stmt.result and stmt.result.data_array:
             return stmt.result.data_array
         return None
-    except:
+    except Exception as e:
+        print(f"⚠️  Databricks query failed: {e}")
+        print(f"   Tip: Run 'databricks configure' to set up CLI config")
         return None
 
 
@@ -90,6 +103,27 @@ async def ingestion_dashboard(request: Request):
             "title": "PI Lakehouse Ingestion Dashboard"
         }
     )
+
+
+@app.get("/api/visual/af-hierarchy", response_class=HTMLResponse, include_in_schema=False)
+async def af_hierarchy_visual():
+    """AF Hierarchy interactive tree visualization."""
+    with open("af_hierarchy_tree.html", "r") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/api/visual/events-alarms", response_class=HTMLResponse, include_in_schema=False)
+async def events_alarms_visual():
+    """Events and alarms viewer."""
+    with open("events_alarms_viewer.html", "r") as f:
+        return HTMLResponse(content=f.read())
+
+
+@app.get("/api/visual/websocket-monitor", response_class=HTMLResponse, include_in_schema=False)
+async def websocket_monitor_visual():
+    """WebSocket real-time monitor."""
+    with open("websocket_monitor.html", "r") as f:
+        return HTMLResponse(content=f.read())
 
 
 # ============================================================================
@@ -352,16 +386,74 @@ def get_fallback_events() -> List[Dict[str, Any]]:
 # ============================================================================
 # PI WEB API ROUTES (already defined in mock_pi_server.py)
 # ============================================================================
-# The routes are already included from the imported pi_app:
-# - /piwebapi
-# - /piwebapi/assetdatabases
-# - /piwebapi/dataservers
-# - /piwebapi/assetdatabases/{database_id}/elements
-# - /piwebapi/elements/{element_id}/attributes
-# - /piwebapi/streams/{webid}/recorded
-# - /piwebapi/streams/{webid}/interpolated
-# - /piwebapi/assetdatabases/{database_id}/eventframes
-# - /piwebapi/batch
+# The routes are already included from the imported pi_app.
+# We override the event frames endpoint to query from Unity Catalog instead of mock data.
+
+@app.get("/piwebapi/assetdatabases/{db_webid}/eventframes")
+async def get_event_frames_from_uc(
+    db_webid: str,
+    startTime: str = None,
+    endTime: str = None,
+    searchMode: str = "Overlapped",
+    templateName: str = None
+):
+    """
+    Get event frames from Unity Catalog (osipi.bronze.pi_event_frames).
+    Overrides the mock endpoint to return real data.
+    """
+    # Build SQL query
+    sql_parts = ["SELECT * FROM osipi.bronze.pi_event_frames WHERE 1=1"]
+
+    if startTime:
+        sql_parts.append(f"AND start_time >= TIMESTAMP'{startTime.replace('Z', '')}'")
+
+    if endTime:
+        sql_parts.append(f"AND start_time <= TIMESTAMP'{endTime.replace('Z', '')}'")
+
+    if templateName:
+        sql_parts.append(f"AND template_name = '{templateName}'")
+
+    sql_parts.append("ORDER BY start_time DESC LIMIT 100")
+
+    sql = " ".join(sql_parts)
+
+    # Query Databricks
+    result = query_databricks(sql)
+
+    if result:
+        # Transform result to PI Web API format
+        items = []
+        for row in result:
+            event = {
+                "WebId": row[0],  # webid
+                "Name": row[1],  # name
+                "TemplateName": row[2],  # template_name
+                "StartTime": row[3],  # start_time
+                "EndTime": row[4],  # end_time
+                "PrimaryReferencedElementWebId": row[5],  # primary_referenced_element_webid
+                "Description": row[6],  # description
+                "CategoryNames": row[7] if row[7] else [],  # category_names
+                "Attributes": row[8] if row[8] else {}  # attributes
+            }
+            items.append(event)
+
+        return {"Items": items}
+    else:
+        # If Unity Catalog query fails, fall back to mock data
+        print("⚠️  Unity Catalog query failed, falling back to mock data")
+        from tests.mock_pi_server import MOCK_EVENT_FRAMES
+        # Apply filters to mock data
+        filtered_events = MOCK_EVENT_FRAMES
+        if startTime:
+            start_dt = datetime.fromisoformat(startTime.replace('Z', ''))
+            filtered_events = [e for e in filtered_events if datetime.fromisoformat(e['StartTime'].replace('Z', '')) >= start_dt]
+        if endTime:
+            end_dt = datetime.fromisoformat(endTime.replace('Z', ''))
+            filtered_events = [e for e in filtered_events if datetime.fromisoformat(e['StartTime'].replace('Z', '')) <= end_dt]
+        if templateName:
+            filtered_events = [e for e in filtered_events if e['TemplateName'] == templateName]
+
+        return {"Items": filtered_events[:100]}
 
 
 # ============================================================================
