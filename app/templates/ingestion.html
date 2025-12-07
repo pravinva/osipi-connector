@@ -24,74 +24,76 @@
     </header>
 
     <main class="container dashboard">
+        <!-- Quick Links to Workspace -->
+        <section class="quick-links-bar">
+            <a href="https://e2-demo-field-eng.cloud.databricks.com/explore/data/osipi/bronze/pi_timeseries" class="quick-link" target="_blank">
+                <span class="link-icon">📊</span>
+                <span class="link-text">Bronze Table</span>
+            </a>
+            <a href="https://e2-demo-field-eng.cloud.databricks.com/explore/data/osipi/gold/pi_metrics_hourly" class="quick-link" target="_blank">
+                <span class="link-icon">✨</span>
+                <span class="link-text">Gold Table</span>
+            </a>
+            <a href="https://e2-demo-field-eng.cloud.databricks.com/#workspace/Users/pravin.varma@databricks.com/OSIPI_Lakeflow_Connector" class="quick-link" target="_blank">
+                <span class="link-icon">📓</span>
+                <span class="link-text">Connector Notebook</span>
+            </a>
+            <a href="https://e2-demo-field-eng.cloud.databricks.com/#job/list" class="quick-link" target="_blank">
+                <span class="link-icon">⚙️</span>
+                <span class="link-text">Workflows</span>
+            </a>
+        </section>
+
         <!-- Status KPIs -->
         <section class="kpi-grid">
-            <div class="kpi-card status">
+            <a href="https://e2-demo-field-eng.cloud.databricks.com/explore/data/osipi/bronze/pi_timeseries" class="kpi-card kpi-card-link status" target="_blank">
                 <div class="kpi-content">
-                    <div class="kpi-label">System Status</div>
-                    <div class="kpi-value" id="status">Loading...</div>
-                </div>
-            </div>
-
-            <div class="kpi-card">
-                <div class="kpi-content">
-                    <div class="kpi-label">Last Run</div>
-                    <div class="kpi-value" id="last_run">--</div>
-                </div>
-            </div>
-
-            <div class="kpi-card">
-                <div class="kpi-content">
-                    <div class="kpi-label">Rows (Last Hour)</div>
+                    <div class="kpi-label">Bronze Timeseries</div>
                     <div class="kpi-value" id="rows_last_hour">--</div>
+                    <div class="kpi-subtitle">rows ingested</div>
                 </div>
-            </div>
+            </a>
 
-            <div class="kpi-card">
+            <a href="https://e2-demo-field-eng.cloud.databricks.com/explore/data/osipi/bronze/pi_timeseries" class="kpi-card kpi-card-link" target="_blank">
                 <div class="kpi-content">
                     <div class="kpi-label">Active Tags</div>
                     <div class="kpi-value" id="tags_ingested">--</div>
+                    <div class="kpi-subtitle">tags monitored</div>
                 </div>
-            </div>
+            </a>
 
-            <div class="kpi-card">
+            <a href="https://e2-demo-field-eng.cloud.databricks.com/explore/data/osipi/gold/pi_metrics_hourly" class="kpi-card kpi-card-link" target="_blank">
                 <div class="kpi-content">
-                    <div class="kpi-label">Event Frames</div>
-                    <div class="kpi-value" id="event_frames">--</div>
-                </div>
-            </div>
-
-            <div class="kpi-card">
-                <div class="kpi-content">
-                    <div class="kpi-label">Data Quality</div>
+                    <div class="kpi-label">Gold Metrics</div>
                     <div class="kpi-value" id="quality_score">--</div>
+                    <div class="kpi-subtitle">% quality</div>
                 </div>
-            </div>
+            </a>
 
-            <div class="kpi-card">
+            <a href="https://e2-demo-field-eng.cloud.databricks.com/#workspace/Users/pravin.varma@databricks.com/OSIPI_Lakeflow_Connector" class="kpi-card kpi-card-link" target="_blank">
                 <div class="kpi-content">
-                    <div class="kpi-label">Avg Latency</div>
-                    <div class="kpi-value" id="avg_latency">--</div>
+                    <div class="kpi-label">Connector Status</div>
+                    <div class="kpi-value" id="status">Loading...</div>
+                    <div class="kpi-subtitle">last run: <span id="last_run">--</span></div>
                 </div>
-            </div>
-
-            <div class="kpi-card">
-                <div class="kpi-content">
-                    <div class="kpi-label">Active Pipelines</div>
-                    <div class="kpi-value" id="active_pipelines">--</div>
-                </div>
-            </div>
+            </a>
         </section>
 
         <!-- Charts -->
         <section class="chart-grid">
             <div class="chart-card">
-                <h3>Ingestion Rate (Last Hour)</h3>
+                <div class="chart-header">
+                    <h3>Ingestion Rate (Last Hour)</h3>
+                    <a href="https://e2-demo-field-eng.cloud.databricks.com/explore/data/osipi/gold/pi_metrics_hourly" class="chart-link" target="_blank">View in Catalog →</a>
+                </div>
                 <canvas id="rowsChart"></canvas>
             </div>
 
             <div class="chart-card">
-                <h3>Tags by Plant</h3>
+                <div class="chart-header">
+                    <h3>Tags by Sensor Type</h3>
+                    <a href="https://e2-demo-field-eng.cloud.databricks.com/explore/data/osipi/bronze/pi_timeseries" class="chart-link" target="_blank">View in Catalog →</a>
+                </div>
                 <canvas id="tagsChart"></canvas>
             </div>
         </section>
