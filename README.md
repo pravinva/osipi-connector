@@ -41,7 +41,13 @@ export MOCK_PI_TAG_COUNT=10000  # Scale to 10,000 tags
 
 **Open in browser:**
 - PI Web API: http://localhost:8010
-- Dashboard: http://localhost:8010/ingestion
+- Dashboard: http://localhost:8010/ingestion (shows real UC data + alarm events)
+
+**What data is real vs mock:**
+- ✅ **5 endpoints query real Unity Catalog data** (bronze + gold tables)
+- ✅ **1 endpoint queries real alarm event frames** (50 events from PI server)
+- ❌ **7 endpoints are mock PI Web API** (data source, not destination)
+- See [REAL_VS_MOCK_DATA.md](REAL_VS_MOCK_DATA.md) for complete breakdown
 
 ### 2. Run the Lakeflow Connector
 
@@ -51,7 +57,27 @@ export MOCK_PI_TAG_COUNT=10000  # Scale to 10,000 tags
 3. Watch it discover tags, extract data, and load to Delta Lake
 4. View results in `osipi.bronze.pi_timeseries`
 
-### 3. View Ingested Data
+### 3. Monitor Live Dashboard
+
+The dashboard at http://localhost:8010/ingestion displays:
+
+**Real-time KPIs (from Unity Catalog):**
+- System status and last run timestamp
+- Total rows ingested (last hour)
+- Active tags being monitored
+- Data quality percentage
+- Average latency
+- Pipeline health status
+
+**Visualizations:**
+- Ingestion rate chart (last hour, from gold table)
+- Tags by sensor type (from bronze table)
+- Pipeline health grid (from bronze table)
+- Recent alarm events (50 events from PI server)
+
+**Auto-refresh:** Dashboard refreshes every 30 seconds
+
+### 4. View Ingested Data
 
 ```sql
 -- Check total rows
@@ -650,6 +676,7 @@ osipi-connector/
 │   ├── HACKATHON_DEMO_GUIDE.md          Hackathon demo walkthrough
 │   └── MOCK_PI_SERVER_DOCUMENTATION.md  Mock API reference
 │
+├── REAL_VS_MOCK_DATA.md                 Data sources breakdown (real UC vs mock)
 ├── pipeline_config.csv                  Pipeline configuration (5 pipelines)
 ├── databricks.yml                       DABs configuration (coming soon)
 ├── requirements.txt                     Python dependencies
@@ -659,11 +686,12 @@ osipi-connector/
 ## Documentation
 
 - **README.md** - This file (quick start and overview)
+- **REAL_VS_MOCK_DATA.md** - Data sources breakdown (real UC data vs mock API)
 - **docs/pi_connector_dev.md** - Complete developer specification (1,750+ lines)
 - **docs/pi_connector_test.md** - Comprehensive testing strategy (1,900+ lines)
 - **docs/CUSTOMER_EXAMPLES.md** - Real-world customer use cases
 - **docs/PROJECT_SUMMARY.md** - Project completion summary
-- **docs/HACKATHON_GUIDE.md** - Hackathon submission guide
+- **docs/HACKATHON_DEMO_GUIDE.md** - Hackathon demo walkthrough
 - **docs/MOCK_PI_SERVER_DOCUMENTATION.md** - PI Web API endpoint documentation
 
 ## Competitive Advantages
