@@ -85,13 +85,41 @@ display(points_df.limit(10))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 2. Ingest Timeseries Data
+# MAGIC ## 2. Ingest Timeseries Data (with Checkpoint)
 
 # COMMAND ----------
 
-# For each tag, get last 24 hours of data
+# Get last checkpoint to enable incremental ingestion
+checkpoint_query = """
+SELECT last_ingestion_timestamp
+FROM osipi.checkpoints.pi_ingestion_watermarks
+WHERE source_name = 'pi_timeseries'
+  AND status = 'SUCCESS'
+ORDER BY run_timestamp DESC
+LIMIT 1
+"""
+
+try:
+    checkpoint_df = spark.sql(checkpoint_query)
+    checkpoint_row = checkpoint_df.collect()
+
+    if checkpoint_row and checkpoint_row[0]["last_ingestion_timestamp"]:
+        # Incremental: fetch data since last checkpoint
+        start_time = checkpoint_row[0]["last_ingestion_timestamp"]
+        print(f"📍 Checkpoint found: {start_time}")
+        print(f"   Mode: INCREMENTAL (fetching new data only)")
+    else:
+        # Initial load: fetch last 24 hours
+        start_time = datetime.utcnow() - timedelta(hours=24)
+        print(f"📍 No checkpoint found")
+        print(f"   Mode: INITIAL LOAD (fetching last 24 hours)")
+except Exception as e:
+    # No checkpoint table or error - do initial load
+    start_time = datetime.utcnow() - timedelta(hours=24)
+    print(f"📍 Checkpoint lookup failed: {e}")
+    print(f"   Mode: INITIAL LOAD (fetching last 24 hours)")
+
 end_time = datetime.utcnow()
-start_time = end_time - timedelta(hours=24)
 
 start_time_str = start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
 end_time_str = end_time.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -157,10 +185,26 @@ if timeseries_data:
 
     display(timeseries_df.limit(10))
 
+    record_count = len(timeseries_data)
+
     # Write to Delta table
     timeseries_df.write.mode("append").saveAsTable(f"{UC_CATALOG}.{UC_SCHEMA}.pi_timeseries")
 
-    print(f"✓ Wrote {timeseries_df.count()} records to {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries")
+    print(f"✓ Wrote {record_count} records to {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries")
+
+    # Update checkpoint
+    checkpoint_data = [{
+        "source_name": "pi_timeseries",
+        "last_ingestion_timestamp": end_time,
+        "records_ingested": record_count,
+        "run_timestamp": datetime.utcnow(),
+        "status": "SUCCESS"
+    }]
+
+    checkpoint_df = spark.createDataFrame(checkpoint_data)
+    checkpoint_df.write.mode("append").saveAsTable("osipi.checkpoints.pi_ingestion_watermarks")
+
+    print(f"✓ Checkpoint updated: {end_time}")
 else:
     print("⚠️ No timeseries data to write")
 
