@@ -92,15 +92,28 @@ else:
 # if auth type is 'oauth', use the provided headers instead of basic auth
 
 # COMMAND ----------
-# Define DLT table for PI time-series data using simple overlapping windows
+# Define DLT table for PI time-series data using simple approach
 
-@dlt.view(name="pi_timeseries_raw")
-def pi_timeseries_raw():
+@dlt.table(
+    name="pi_timeseries",
+    comment="PI Web API time-series data with overlapping window deduplication",
+    table_properties={
+        "quality": "bronze",
+        "pipelines.autoOptimize.managed": "true",
+        "delta.enableChangeDataFeed": "true",
+        "pipelines.merge.keys": "tag_webid,timestamp"
+    },
+    partition_cols=["partition_date"]
+)
+def pi_timeseries():
     """
-    Raw extraction view - fetches last 7 days of data on each run.
-    Overlapping windows ensure no data is missed between runs.
+    Bronze table for raw PI time-series data.
+
+    Fetches last 7 days on each run (overlapping windows).
+    Uses MERGE on write to deduplicate based on (tag_webid, timestamp).
     """
     from datetime import datetime, timedelta
+    from pyspark.sql.functions import col, current_timestamp
 
     # Always fetch last 7 days (overlapping for safety)
     start_time = datetime.now() - timedelta(days=7)
@@ -120,23 +133,3 @@ def pi_timeseries_raw():
     df = df.withColumn("ingestion_timestamp", current_timestamp())
 
     return df
-
-# Bronze table with MERGE to handle duplicates
-dlt.create_streaming_table(
-    name="pi_timeseries",
-    comment="PI Web API time-series data with automatic deduplication",
-    table_properties={
-        "quality": "bronze",
-        "pipelines.autoOptimize.managed": "true",
-        "delta.enableChangeDataFeed": "true"
-    },
-    partition_cols=["partition_date"]
-)
-
-dlt.apply_changes(
-    target="pi_timeseries",
-    source="pi_timeseries_raw",
-    keys=["tag_webid", "timestamp"],
-    sequence_by="ingestion_timestamp",
-    stored_as_scd_type=1
-)
