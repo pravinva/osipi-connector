@@ -23,7 +23,8 @@ dbutils.library.restartPython()
 
 import yaml
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service import pipelines, jobs
+from databricks.sdk.service.pipelines import PipelineLibrary, NotebookLibrary
+from databricks.sdk.service import jobs
 
 # Initialize workspace client
 w = WorkspaceClient()
@@ -177,22 +178,12 @@ for pipeline_key, pipeline_spec in pipelines_config.get('resources', {}).get('pi
     print('=' * 60)
 
     try:
-        # Build pipeline configuration
-        pipeline_config = {
-            "name": pipeline_spec['name'],
-            "catalog": pipeline_spec['catalog'],
-            "target": pipeline_spec['target'],
-            "libraries": pipeline_spec['libraries'],
-            "continuous": pipeline_spec.get('continuous', False),
-            "serverless": pipeline_spec.get('serverless', True),
-        }
-
-        # Add optional fields
-        if 'configuration' in pipeline_spec:
-            pipeline_config['configuration'] = pipeline_spec['configuration']
-
-        if 'clusters' in pipeline_spec:
-            pipeline_config['clusters'] = pipeline_spec['clusters']
+        # Convert library dictionaries to SDK objects
+        libraries = []
+        for lib in pipeline_spec['libraries']:
+            if 'notebook' in lib:
+                libraries.append(PipelineLibrary(notebook=NotebookLibrary(path=lib['notebook']['path'])))
+            # Add other library types if needed (jar, maven, etc.)
 
         # Check if pipeline exists
         if pipeline_name in existing_pipelines:
@@ -202,14 +193,14 @@ for pipeline_key, pipeline_spec in pipelines_config.get('resources', {}).get('pi
             # Update pipeline
             w.pipelines.update(
                 pipeline_id=pipeline_id,
-                name=pipeline_config['name'],
-                catalog=pipeline_config['catalog'],
-                target=pipeline_config['target'],
-                libraries=pipeline_config['libraries'],
-                continuous=pipeline_config['continuous'],
-                serverless=pipeline_config['serverless'],
-                configuration=pipeline_config.get('configuration'),
-                clusters=pipeline_config.get('clusters')
+                name=pipeline_spec['name'],
+                catalog=pipeline_spec['catalog'],
+                target=pipeline_spec['target'],
+                libraries=libraries,
+                continuous=pipeline_spec.get('continuous', False),
+                serverless=pipeline_spec.get('serverless', True),
+                configuration=pipeline_spec.get('configuration'),
+                clusters=pipeline_spec.get('clusters')
             )
 
             deployed_pipelines[pipeline_name] = pipeline_id
@@ -219,14 +210,14 @@ for pipeline_key, pipeline_spec in pipelines_config.get('resources', {}).get('pi
 
             # Create pipeline
             created = w.pipelines.create(
-                name=pipeline_config['name'],
-                catalog=pipeline_config['catalog'],
-                target=pipeline_config['target'],
-                libraries=pipeline_config['libraries'],
-                continuous=pipeline_config['continuous'],
-                serverless=pipeline_config['serverless'],
-                configuration=pipeline_config.get('configuration'),
-                clusters=pipeline_config.get('clusters')
+                name=pipeline_spec['name'],
+                catalog=pipeline_spec['catalog'],
+                target=pipeline_spec['target'],
+                libraries=libraries,
+                continuous=pipeline_spec.get('continuous', False),
+                serverless=pipeline_spec.get('serverless', True),
+                configuration=pipeline_spec.get('configuration'),
+                clusters=pipeline_spec.get('clusters')
             )
 
             deployed_pipelines[pipeline_name] = created.pipeline_id
