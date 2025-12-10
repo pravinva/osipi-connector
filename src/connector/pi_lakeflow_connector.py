@@ -174,11 +174,17 @@ class PILakeflowConnector:
         tag_webids = self._get_tag_list()
         self.logger.info(f"Processing {len(tag_webids)} tags")
 
-        # Get checkpoints (where we left off)
-        watermarks = self.checkpoint_mgr.get_watermarks(tag_webids)
-
-        # Extract time-series data
-        end_time = datetime.now()
+        # Check if start_time/end_time provided in config (DLT mode with overlapping windows)
+        if 'start_time' in self.config and 'end_time' in self.config:
+            # Use config times (DLT native mode - no checkpoints needed)
+            start_time = self.config['start_time']
+            end_time = self.config['end_time']
+            self.logger.info(f"Using config time range: {start_time} to {end_time}")
+        else:
+            # Fall back to checkpoint-based incremental (non-DLT mode)
+            self.logger.info("Using checkpoint-based time ranges")
+            watermarks = self.checkpoint_mgr.get_watermarks(tag_webids)
+            end_time = datetime.now()
 
         all_timeseries = []
         # Process in batches of 100 tags (batch controller limit)
@@ -186,14 +192,19 @@ class PILakeflowConnector:
         for i in range(0, len(tag_webids), BATCH_SIZE):
             batch_tags = tag_webids[i:i+BATCH_SIZE]
 
-            # Get earliest watermark for this batch
-            min_start = min(watermarks[tag] for tag in batch_tags)
+            # Determine start time for this batch
+            if 'start_time' in self.config:
+                # DLT mode: use same time range for all tags (overlapping window)
+                batch_start = start_time
+            else:
+                # Non-DLT mode: use checkpoint watermarks
+                batch_start = min(watermarks[tag] for tag in batch_tags)
 
-            self.logger.info(f"Extracting batch {i//BATCH_SIZE + 1}: {len(batch_tags)} tags")
+            self.logger.info(f"Extracting batch {i//BATCH_SIZE + 1}: {len(batch_tags)} tags from {batch_start} to {end_time}")
 
             ts_df = self.ts_extractor.extract_recorded_data(
                 tag_webids=batch_tags,
-                start_time=min_start,
+                start_time=batch_start,
                 end_time=end_time
             )
 
