@@ -92,7 +92,7 @@ else:
 # if auth type is 'oauth', use the provided headers instead of basic auth
 
 # COMMAND ----------
-# Define DLT table for PI time-series data using simple approach
+# Define DLT tables for PI Web API data
 
 @dlt.table(
     name="pi_timeseries",
@@ -133,3 +133,211 @@ def pi_timeseries():
     df = df.withColumn("ingestion_timestamp", current_timestamp())
 
     return df
+
+# COMMAND ----------
+# AF Hierarchy Table
+
+@dlt.table(
+    name="pi_af_hierarchy",
+    comment="PI Asset Framework hierarchy from PI Web API",
+    table_properties={
+        "quality": "bronze",
+        "pipelines.autoOptimize.managed": "true",
+        "delta.enableChangeDataFeed": "true"
+    }
+)
+def pi_af_hierarchy():
+    """
+    Bronze table for AF (Asset Framework) hierarchy.
+
+    Full refresh on each run - AF structure doesn't change frequently.
+    """
+    import requests
+    from pyspark.sql.functions import col, current_timestamp
+    from datetime import datetime
+
+    # Get asset databases
+    assetdatabases_url = f"{pi_server_url}/assetdatabases"
+
+    if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_url:
+        response = requests.get(assetdatabases_url, headers=auth_headers)
+    else:
+        username = dbutils.secrets.get(scope=connection_name, key='username')
+        password = dbutils.secrets.get(scope=connection_name, key='password')
+        response = requests.get(assetdatabases_url, auth=(username, password))
+
+    databases = response.json().get("Items", [])
+
+    af_hierarchy_data = []
+
+    for db in databases:
+        db_webid = db["WebId"]
+
+        # Get root elements
+        elements_url = f"{pi_server_url}/assetdatabases/{db_webid}/elements"
+
+        if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_url:
+            response = requests.get(elements_url, headers=auth_headers)
+        else:
+            response = requests.get(elements_url, auth=(username, password))
+
+        elements = response.json().get("Items", [])
+
+        # Recursively extract hierarchy
+        def extract_elements(elements_list, parent_webid=None):
+            for elem in elements_list:
+                # Extract metadata from name
+                parts = elem["Name"].split("_")
+                plant = parts[0] if len(parts) > 0 else "Unknown"
+
+                af_hierarchy_data.append({
+                    "webid": elem["WebId"],
+                    "name": elem["Name"],
+                    "template_name": elem.get("TemplateName", ""),
+                    "description": elem.get("Description", ""),
+                    "path": elem.get("Path", ""),
+                    "parent_webid": parent_webid if parent_webid else "",
+                    "plant": plant,
+                    "unit": 0,
+                    "equipment_type": elem.get("TemplateName", "").replace("Template", ""),
+                    "ingestion_timestamp": datetime.now()
+                })
+
+                # Recursively process child elements
+                if "Elements" in elem and elem["Elements"]:
+                    extract_elements(elem["Elements"], elem["WebId"])
+
+        extract_elements(elements)
+
+    # Create DataFrame
+    if af_hierarchy_data:
+        df = spark.createDataFrame(af_hierarchy_data)
+        df = df.withColumn("ingestion_timestamp", current_timestamp())
+        return df
+    else:
+        # Return empty DataFrame with schema
+        from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
+        schema = StructType([
+            StructField("webid", StringType(), True),
+            StructField("name", StringType(), True),
+            StructField("template_name", StringType(), True),
+            StructField("description", StringType(), True),
+            StructField("path", StringType(), True),
+            StructField("parent_webid", StringType(), True),
+            StructField("plant", StringType(), True),
+            StructField("unit", IntegerType(), True),
+            StructField("equipment_type", StringType(), True),
+            StructField("ingestion_timestamp", TimestampType(), True)
+        ])
+        return spark.createDataFrame([], schema)
+
+# COMMAND ----------
+# Event Frames Table
+
+@dlt.table(
+    name="pi_event_frames",
+    comment="PI Event Frames (batch runs, alarms, maintenance) from PI Web API",
+    table_properties={
+        "quality": "bronze",
+        "pipelines.autoOptimize.managed": "true",
+        "delta.enableChangeDataFeed": "true",
+        "pipelines.merge.keys": "webid,start_time"
+    },
+    partition_cols=["partition_date"]
+)
+def pi_event_frames():
+    """
+    Bronze table for Event Frames (alarms, events, batch runs).
+
+    Fetches last 30 days on each run (overlapping windows).
+    Uses MERGE on write to deduplicate based on (webid, start_time).
+    """
+    import requests
+    from pyspark.sql.functions import col, current_timestamp
+    from datetime import datetime, timedelta
+
+    # Fetch last 30 days
+    end_time = datetime.now()
+    start_time = end_time - timedelta(days=30)
+
+    start_time_str = start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_time_str = end_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Get asset databases
+    assetdatabases_url = f"{pi_server_url}/assetdatabases"
+
+    if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_url:
+        response = requests.get(assetdatabases_url, headers=auth_headers)
+    else:
+        username = dbutils.secrets.get(scope=connection_name, key='username')
+        password = dbutils.secrets.get(scope=connection_name, key='password')
+        response = requests.get(assetdatabases_url, auth=(username, password))
+
+    databases = response.json().get("Items", [])
+
+    event_frames_data = []
+
+    for db in databases:
+        db_webid = db["WebId"]
+
+        # Get event frames
+        ef_url = f"{pi_server_url}/assetdatabases/{db_webid}/eventframes"
+        params = {"startTime": start_time_str, "endTime": end_time_str}
+
+        if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_url:
+            response = requests.get(ef_url, params=params, headers=auth_headers)
+        else:
+            response = requests.get(ef_url, params=params, auth=(username, password))
+
+        if response.status_code == 200:
+            event_frames = response.json().get("Items", [])
+
+            for ef in event_frames:
+                # Convert attributes to dict
+                raw_attrs = ef.get("Attributes", {})
+                attrs_map = {k: str(v) if v is not None else "" for k, v in raw_attrs.items()} if raw_attrs else {}
+
+                # Category names
+                category_names = ef.get("CategoryNames", []) if ef.get("CategoryNames") else []
+
+                event_frames_data.append({
+                    "webid": ef["WebId"],
+                    "name": ef["Name"],
+                    "template_name": ef.get("TemplateName", ""),
+                    "start_time": ef["StartTime"],
+                    "end_time": ef.get("EndTime"),
+                    "primary_referenced_element_webid": ef.get("PrimaryReferencedElementWebId"),
+                    "description": ef.get("Description", ""),
+                    "category_names": category_names,
+                    "attributes": attrs_map,
+                    "ingestion_timestamp": datetime.now()
+                })
+
+    # Create DataFrame
+    if event_frames_data:
+        df = spark.createDataFrame(event_frames_data)
+
+        # Convert timestamps
+        df = df.withColumn("start_time", col("start_time").cast("timestamp"))
+        df = df.withColumn("end_time", col("end_time").cast("timestamp"))
+        df = df.withColumn("ingestion_timestamp", current_timestamp())
+        df = df.withColumn("partition_date", col("start_time").cast("date"))
+
+        return df
+    else:
+        # Return empty DataFrame with schema
+        from pyspark.sql.types import StructType, StructField, StringType, TimestampType, ArrayType, MapType, DateType
+        schema = StructType([
+            StructField("webid", StringType(), True),
+            StructField("name", StringType(), True),
+            StructField("template_name", StringType(), True),
+            StructField("start_time", TimestampType(), True),
+            StructField("end_time", TimestampType(), True),
+            StructField("primary_referenced_element_webid", StringType(), True),
+            StructField("description", StringType(), True),
+            StructField("category_names", ArrayType(StringType()), True),
+            StructField("attributes", MapType(StringType(), StringType()), True),
+            StructField("ingestion_timestamp", TimestampType(), True),
+            StructField("partition_date", DateType(), True)
+        ])
+        return spark.createDataFrame([], schema)
