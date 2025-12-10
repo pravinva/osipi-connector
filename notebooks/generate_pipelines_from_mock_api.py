@@ -250,8 +250,12 @@ config_df = config_df[[
     'start_time_offset_days'
 ]]
 
-# Save to Workspace
-config_df.to_csv(OUTPUT_CSV.replace('/Workspace', '/dbfs/Workspace'), index=False)
+# Save to Workspace using dbutils
+# Convert pandas DataFrame to CSV string
+csv_content = config_df.to_csv(index=False)
+
+# Write to Workspace using dbutils.fs
+dbutils.fs.put(OUTPUT_CSV, csv_content, overwrite=True)
 
 print(f"✓ Saved configuration to: {OUTPUT_CSV}")
 print(f"\nTotal records: {len(config_df)}")
@@ -266,8 +270,11 @@ display(config_df.head(10))
 
 # COMMAND ----------
 
-# Create output directory for YAML files
-os.makedirs(OUTPUT_YAML_DIR.replace('/Workspace', '/dbfs/Workspace'), exist_ok=True)
+# Create output directory for YAML files using dbutils
+try:
+    dbutils.fs.mkdirs(OUTPUT_YAML_DIR)
+except:
+    pass  # Directory may already exist
 
 # Now we'd normally call the generate_dab_yaml.py script
 # Since we're in a notebook, let's inline the YAML generation
@@ -363,15 +370,16 @@ else:
     jobs_yaml = {'resources': {'jobs': {}}}
     print(f"✓ Skipping job generation (streaming mode - pipelines run continuously)")
 
-# Write files
+# Write files using dbutils
 pipelines_file = f"{OUTPUT_YAML_DIR}/pipelines.yml"
 jobs_file = f"{OUTPUT_YAML_DIR}/jobs.yml"
 
-with open(pipelines_file.replace('/Workspace', '/dbfs/Workspace'), 'w') as f:
-    yaml.dump(pipelines_yaml, f, default_flow_style=False, sort_keys=False)
+# Convert YAML to string and write
+pipelines_content = yaml.dump(pipelines_yaml, default_flow_style=False, sort_keys=False)
+dbutils.fs.put(pipelines_file, pipelines_content, overwrite=True)
 
-with open(jobs_file.replace('/Workspace', '/dbfs/Workspace'), 'w') as f:
-    yaml.dump(jobs_yaml, f, default_flow_style=False, sort_keys=False)
+jobs_content = yaml.dump(jobs_yaml, default_flow_style=False, sort_keys=False)
+dbutils.fs.put(jobs_file, jobs_content, overwrite=True)
 
 print(f"✓ Generated YAML files:")
 print(f"  - {pipelines_file}")
@@ -448,14 +456,16 @@ if AUTO_DEPLOY_DAB:
     project_root = "/Workspace/Repos/production/osipi-connector"  # Adjust if needed
 
     try:
-        # Copy YAML files to project
-        shutil.copy(
-            pipelines_file.replace('/Workspace', '/dbfs/Workspace'),
-            f"{project_root}/deployment/resources/pipelines.yml"
+        # Copy YAML files to project using dbutils
+        dbutils.fs.cp(
+            pipelines_file,
+            f"{project_root}/deployment/resources/pipelines.yml",
+            recurse=False
         )
-        shutil.copy(
-            jobs_file.replace('/Workspace', '/dbfs/Workspace'),
-            f"{project_root}/deployment/resources/jobs.yml"
+        dbutils.fs.cp(
+            jobs_file,
+            f"{project_root}/deployment/resources/jobs.yml",
+            recurse=False
         )
 
         print(f"✓ Copied YAML files to {project_root}/deployment/resources/")
