@@ -157,19 +157,20 @@ async def get_ingestion_status() -> Dict[str, Any]:
     """Get current ingestion status and KPIs from osipi.bronze tables."""
 
     # Query actual data from Unity Catalog
+    # Changed from CURRENT_DATE() to last 7 days to show data regardless of ingestion date
     timeseries_stats = execute_sql(f"""
         SELECT
             COUNT(*) as total_rows_today,
             COUNT(DISTINCT tag_webid) as tags_ingested,
             MAX(ingestion_timestamp) as last_run
         FROM {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries
-        WHERE DATE(ingestion_timestamp) = CURRENT_DATE()
+        WHERE ingestion_timestamp >= CURRENT_TIMESTAMP() - INTERVAL 7 DAYS
     """)
 
     event_frames_count = execute_sql(f"""
         SELECT COUNT(*) as count
         FROM {UC_CATALOG}.{UC_SCHEMA}.pi_event_frames
-        WHERE DATE(start_time) = CURRENT_DATE()
+        WHERE start_time >= CURRENT_TIMESTAMP() - INTERVAL 7 DAYS
     """)
 
     af_elements_count = execute_sql(f"""
@@ -206,14 +207,14 @@ async def get_ingestion_status() -> Dict[str, Any]:
 async def get_ingestion_timeseries() -> Dict[str, List]:
     """Get time-series metrics for charts from osipi.bronze tables."""
 
-    # Query actual ingestion rate over last hour
+    # Query actual ingestion rate over last 24 hours (changed from 1 hour to show more data)
     results = execute_sql(f"""
         SELECT
-            DATE_TRUNC('minute', ingestion_timestamp) as ts,
+            DATE_TRUNC('hour', ingestion_timestamp) as ts,
             COUNT(*) as row_count
         FROM {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries
-        WHERE ingestion_timestamp >= CURRENT_TIMESTAMP() - INTERVAL 1 HOUR
-        GROUP BY DATE_TRUNC('minute', ingestion_timestamp)
+        WHERE ingestion_timestamp >= CURRENT_TIMESTAMP() - INTERVAL 24 HOURS
+        GROUP BY DATE_TRUNC('hour', ingestion_timestamp)
         ORDER BY ts
     """)
 
