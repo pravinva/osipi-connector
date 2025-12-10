@@ -44,9 +44,13 @@ class PILakeflowConnector:
         self.ef_extractor = EventFrameExtractor(self.client)
         # In DLT, skip table creation (managed by @dlt.table decorator)
         dlt_mode = config.get('dlt_mode', False)
+        # In DLT mode, watermarks table is in the same schema as data tables
+        # In non-DLT mode, use separate checkpoints schema
+        checkpoint_table = f"{config['catalog']}.{config['schema']}.pi_watermarks" if dlt_mode \
+                          else f"{config['catalog']}.checkpoints.pi_watermarks"
         self.checkpoint_mgr = CheckpointManager(
             self.spark,
-            f"{config['catalog']}.checkpoints.pi_watermarks",
+            checkpoint_table,
             skip_table_creation=dlt_mode
         )
         self.writer = DeltaLakeWriter(
