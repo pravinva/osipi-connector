@@ -11,3 +11,5 @@ build
 .git
 .venv
 venv
+../src/
+tests/
