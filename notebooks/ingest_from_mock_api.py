@@ -35,26 +35,30 @@ from datetime import datetime, timedelta
 import json
 
 # Configuration
+# Toggle between local mock server and Databricks App
+
+# OPTION 1: Local mock server (no authentication needed)
+# MOCK_API_URL = "http://localhost:8001"
+
+# OPTION 2: Databricks App (uses user authentication)
 MOCK_API_URL = "https://osipi-webserver-1444828305810485.aws.databricksapps.com"
+
 UC_CATALOG = "osipi"
 UC_SCHEMA = "bronze"
 
-# Get OAuth token for Databricks App authentication
-from databricks.sdk import WorkspaceClient
-w = WorkspaceClient()
-
-# Get current user's token
-try:
-    # Try to get OAuth token
-    import os
-    token = os.environ.get("DATABRICKS_TOKEN") or dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
-    print("✓ Using Databricks authentication token")
-except:
-    token = None
-    print("⚠️  No authentication token available - API calls may fail")
-
-# Set up headers for authenticated requests
-headers = {"Authorization": f"Bearer {token}"} if token else {}
+# Authentication: If calling Databricks App, use current user's token
+# If calling localhost, no auth needed
+headers = {}
+if "databricksapps.com" in MOCK_API_URL:
+    try:
+        # Get current user's workspace token
+        token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+        headers = {"Authorization": f"Bearer {token}"}
+        print("✓ Using user authentication for Databricks App")
+    except:
+        print("⚠️  Failed to get auth token - will try without authentication")
+else:
+    print("✓ Using localhost - no authentication needed")
 
 # API endpoints
 DATASERVERS_ENDPOINT = f"{MOCK_API_URL}/piwebapi/dataservers"
@@ -62,7 +66,7 @@ ASSETDATABASES_ENDPOINT = f"{MOCK_API_URL}/piwebapi/assetdatabases"
 
 print(f"Mock API URL: {MOCK_API_URL}")
 print(f"Target: {UC_CATALOG}.{UC_SCHEMA}")
-print(f"Auth headers: {'✓ Present' if headers else '✗ Missing'}")
+print(f"Note: Make sure mock server is running on localhost:8001")
 
 # COMMAND ----------
 
