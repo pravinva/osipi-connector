@@ -55,7 +55,55 @@
                 <p style="color: white;">Adjust tags, AF hierarchy, events, and alarms dynamically</p>
                 <a href="/config" class="btn btn-primary" style="background: white; color: #1B3139; border: none;">Configure Server</a>
             </div>
+
+            <div class="card" style="background: linear-gradient(135deg, #00A8E1 0%, #1B3139 100%); color: white;">
+                <div class="card-icon">📥</div>
+                <h3 style="color: white;">Populate Bronze Tables</h3>
+                <p style="color: white;">Write mock data directly to osipi.bronze tables</p>
+                <button id="populate-btn" class="btn btn-primary" style="background: white; color: #1B3139; border: none;">Populate Data</button>
+                <div id="populate-status" style="margin-top: 10px; font-size: 0.9em;"></div>
+            </div>
         </section>
+
+        <script>
+        document.getElementById('populate-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('populate-btn');
+            const status = document.getElementById('populate-status');
+
+            btn.disabled = true;
+            btn.textContent = 'Populating...';
+            status.innerHTML = '<span style="color: #F7B32B;">⏳ Writing data to Unity Catalog...</span>';
+
+            try {
+                const response = await fetch('/api/ingest/populate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    status.innerHTML = `
+                        <span style="color: #4CAF50;">✓ Success!</span><br>
+                        <small>
+                            pi_timeseries: ${result.tables.pi_timeseries || 0} records<br>
+                            pi_af_hierarchy: ${result.tables.pi_af_hierarchy || 0} records<br>
+                            pi_event_frames: ${result.tables.pi_event_frames || 0} records
+                        </small>
+                    `;
+                    btn.textContent = 'Populate Again';
+                } else {
+                    status.innerHTML = `<span style="color: #FF3621;">✗ Error: ${result.error}</span>`;
+                    btn.textContent = 'Retry';
+                }
+            } catch (error) {
+                status.innerHTML = `<span style="color: #FF3621;">✗ Failed: ${error.message}</span>`;
+                btn.textContent = 'Retry';
+            } finally {
+                btn.disabled = false;
+            }
+        });
+        </script>
 
         <section class="features">
             <h3>Key Features</h3>

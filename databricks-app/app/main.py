@@ -591,6 +591,181 @@ async def update_config(config: Dict[str, int]) -> Dict[str, Any]:
 
 
 # ============================================================================
+# DATA INGESTION - Direct writes to Unity Catalog
+# ============================================================================
+
+@app.post("/api/ingest/populate")
+async def populate_bronze_tables():
+    """
+    Populate osipi.bronze tables directly from mock data.
+
+    This endpoint writes data directly to Unity Catalog, bypassing the need
+    for notebooks to call the API (which has auth issues).
+    """
+    if not w:
+        return {"success": False, "error": "Databricks client not initialized"}
+
+    if not WAREHOUSE_ID:
+        return {"success": False, "error": "DATABRICKS_WAREHOUSE_ID not configured"}
+
+    try:
+        from datetime import datetime, timedelta
+        import json
+
+        results = {
+            "success": True,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "tables": {}
+        }
+
+        # 1. Get all PI points
+        points = list(mock_pi_server.MOCK_TAGS.values())[:100]  # First 100 tags
+
+        # 2. Generate timeseries data (last 24 hours)
+        start_time = datetime.utcnow() - timedelta(hours=24)
+        end_time = datetime.utcnow()
+
+        timeseries_records = []
+        for point in points[:20]:  # First 20 tags for quick ingestion
+            webid = point["WebId"]
+            tag_name = point["Name"]
+
+            # Extract metadata from tag name
+            parts = tag_name.split("_")
+            plant = parts[0] if len(parts) > 0 else "Unknown"
+            unit_str = parts[1] if len(parts) > 1 else "Unit000"
+            unit_num = int(unit_str.replace("Unit", "")) if "Unit" in unit_str else 0
+            sensor_type = parts[2] if len(parts) > 2 else "Unknown"
+
+            # Get recorded values (simulate 24 hours of data)
+            for hour in range(24):
+                timestamp = start_time + timedelta(hours=hour)
+                value = 50 + (hash(f"{webid}{hour}") % 100)  # Deterministic random value
+
+                timeseries_records.append(f"""(
+                    '{webid}',
+                    '{tag_name}',
+                    TIMESTAMP'{timestamp.strftime("%Y-%m-%d %H:%M:%S")}',
+                    {value},
+                    '{point.get("EngineeringUnits", "")}',
+                    'Good',
+                    TIMESTAMP'{datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}',
+                    '{plant}',
+                    {unit_num},
+                    '{sensor_type}'
+                )""")
+
+        # Insert timeseries data
+        if timeseries_records:
+            insert_query = f"""
+            INSERT INTO {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries
+            (tag_webid, tag_name, timestamp, value, units, quality, ingestion_timestamp, plant, unit, sensor_type)
+            VALUES {','.join(timeseries_records)}
+            """
+
+            w.statement_execution.execute_statement(
+                statement=insert_query,
+                warehouse_id=WAREHOUSE_ID,
+                catalog=UC_CATALOG,
+                schema=UC_SCHEMA,
+                wait_timeout="50s"
+            )
+
+            results["tables"]["pi_timeseries"] = len(timeseries_records)
+
+        # 3. Generate AF hierarchy data
+        af_records = []
+        if "F1DP-DB-Production" in mock_pi_server.MOCK_AF_HIERARCHY:
+            db_data = mock_pi_server.MOCK_AF_HIERARCHY["F1DP-DB-Production"]
+            for plant in db_data.get("Elements", [])[:10]:  # First 10 plants
+                plant_name = plant["Name"]
+                af_records.append(f"""(
+                    '{plant["WebId"]}',
+                    '{plant_name}',
+                    '{plant.get("TemplateName", "")}',
+                    '{plant.get("Path", "")}',
+                    '{plant.get("Description", "")}',
+                    TIMESTAMP'{datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}',
+                    '{plant_name.replace("_Plant", "")}'
+                )""")
+
+        if af_records:
+            insert_query = f"""
+            INSERT INTO {UC_CATALOG}.{UC_SCHEMA}.pi_af_hierarchy
+            (webid, name, template_name, path, description, ingestion_timestamp, plant)
+            VALUES {','.join(af_records)}
+            """
+
+            w.statement_execution.execute_statement(
+                statement=insert_query,
+                warehouse_id=WAREHOUSE_ID,
+                catalog=UC_CATALOG,
+                schema=UC_SCHEMA,
+                wait_timeout="50s"
+            )
+
+            results["tables"]["pi_af_hierarchy"] = len(af_records)
+
+        # 4. Generate event frames (last 30 days)
+        event_records = []
+        for event in mock_pi_server.MOCK_EVENT_FRAMES[:10]:  # First 10 events
+            event_records.append(f"""(
+                '{event["WebId"]}',
+                '{event["Name"].replace("'", "''")}',
+                '{event.get("TemplateName", "")}',
+                TIMESTAMP'{event["StartTime"].replace("Z", "")}',
+                TIMESTAMP'{event.get("EndTime", event["StartTime"]).replace("Z", "")}',
+                '{event.get("Description", "").replace("'", "''")}',
+                TIMESTAMP'{datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}'
+            )""")
+
+        if event_records:
+            insert_query = f"""
+            INSERT INTO {UC_CATALOG}.{UC_SCHEMA}.pi_event_frames
+            (webid, name, template_name, start_time, end_time, description, ingestion_timestamp)
+            VALUES {','.join(event_records)}
+            """
+
+            w.statement_execution.execute_statement(
+                statement=insert_query,
+                warehouse_id=WAREHOUSE_ID,
+                catalog=UC_CATALOG,
+                schema=UC_SCHEMA,
+                wait_timeout="50s"
+            )
+
+            results["tables"]["pi_event_frames"] = len(event_records)
+
+        # 5. Update checkpoint
+        checkpoint_query = f"""
+        INSERT INTO osipi.checkpoints.pi_ingestion_watermarks
+        (source_name, last_ingestion_timestamp, records_ingested, run_timestamp, status)
+        VALUES (
+            'pi_timeseries',
+            TIMESTAMP'{end_time.strftime("%Y-%m-%d %H:%M:%S")}',
+            {len(timeseries_records)},
+            TIMESTAMP'{datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}',
+            'SUCCESS'
+        )
+        """
+
+        w.statement_execution.execute_statement(
+            statement=checkpoint_query,
+            warehouse_id=WAREHOUSE_ID,
+            wait_timeout="50s"
+        )
+
+        return results
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
+
+
+# ============================================================================
 # HEALTH CHECK
 # ============================================================================
 
