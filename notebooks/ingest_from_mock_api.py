@@ -35,49 +35,31 @@ from datetime import datetime, timedelta
 import json
 
 # Configuration
-# NOTE: Databricks Apps with browser OAuth cannot be called from notebooks
-# Workaround: Test the response without auth to see if app allows anonymous access
+# IMPORTANT: Databricks Apps require OAuth authentication from notebooks
+# Use WorkspaceClient which handles OAuth automatically
 
 MOCK_API_URL = "https://osipi-webserver-1444828305810485.aws.databricksapps.com"
 
 UC_CATALOG = "osipi"
 UC_SCHEMA = "bronze"
 
-# Try multiple authentication strategies
-headers = {}
-
-print("Testing connectivity to Databricks App...")
+# Get OAuth token using Databricks SDK
+# The SDK automatically uses the notebook's execution context (user or service principal)
+print("Authenticating to Databricks App...")
 print(f"URL: {MOCK_API_URL}")
 
-# Test 1: Try workspace client auth
-try:
-    from databricks.sdk import WorkspaceClient
-    wc = WorkspaceClient()
-    headers = wc.config.authenticate()
-    print("✓ Got headers from WorkspaceClient")
-    print(f"  Headers: {list(headers.keys())}")
-except Exception as e:
-    print(f"⚠️  WorkspaceClient auth failed: {e}")
-
-# Test 2: Try to access without auth (in case app is public)
+from databricks.sdk import WorkspaceClient
 import requests
-test_response = requests.get(f"{MOCK_API_URL}/health", timeout=10, allow_redirects=False)
-print(f"\nTest /health endpoint:")
-print(f"  Status: {test_response.status_code}")
-print(f"  Content-Type: {test_response.headers.get('content-type', 'unknown')}")
 
-if test_response.status_code == 200 and 'json' in test_response.headers.get('content-type', ''):
-    print("✓ App is accessible without authentication!")
-    headers = {}  # No auth needed
-elif test_response.status_code in [302, 401]:
-    print("✗ App requires authentication")
-    print("\n⚠️  PROBLEM: Regular Databricks notebooks cannot authenticate to Databricks Apps")
-    print("   Databricks Apps use browser-based OAuth which doesn't work from notebook API calls")
-    print("\n   WORKAROUND OPTIONS:")
-    print("   1. Make specific API endpoints public (modify app code)")
-    print("   2. Use ngrok to tunnel local mock server to Databricks")
-    print("   3. Deploy mock server as a Databricks job that writes directly to tables")
-    raise Exception(f"Cannot authenticate to Databricks App (status {test_response.status_code})")
+# Initialize WorkspaceClient - automatically picks up notebook context
+wc = WorkspaceClient()
+
+# Get OAuth headers - this returns proper Authorization header for Databricks Apps
+headers = wc.config.authenticate()
+
+print(f"✓ Authentication configured")
+print(f"  Using: {wc.config.auth_type}")
+print(f"  Headers: {list(headers.keys())}")
 
 # API endpoints
 DATASERVERS_ENDPOINT = f"{MOCK_API_URL}/piwebapi/dataservers"
