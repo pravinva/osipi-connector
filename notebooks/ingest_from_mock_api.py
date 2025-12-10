@@ -65,9 +65,9 @@ print(f"  Headers: {list(headers.keys())}")
 DATASERVERS_ENDPOINT = f"{MOCK_API_URL}/piwebapi/dataservers"
 ASSETDATABASES_ENDPOINT = f"{MOCK_API_URL}/piwebapi/assetdatabases"
 
-print(f"Mock API URL: {MOCK_API_URL}")
+print(f"\nMock API URL: {MOCK_API_URL}")
 print(f"Target: {UC_CATALOG}.{UC_SCHEMA}")
-print(f"Note: Make sure mock server is running on localhost:8001")
+print(f"Ready to ingest data from Databricks App")
 
 # COMMAND ----------
 
