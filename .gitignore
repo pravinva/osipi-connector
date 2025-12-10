@@ -82,6 +82,16 @@ config/local*.yml
 
 
 
+# Generated files - ignore
+*.csv
+*.html
+!databricks-app/**/*.html
+
+# Old/obsolete files
+databricks-loadbalanced.yml
+deploy-to-workspace.sh
+simple-deploy.sh
+
 # Auto-generated - Do not edit manually
 # Run notebooks/generate_pipelines_from_mock_api.py to regenerate
 deployment/resources/pipelines.yml
