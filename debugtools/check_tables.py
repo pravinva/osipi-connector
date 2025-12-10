@@ -25,7 +25,7 @@ try:
         else:
             # Show sample data
             result2 = w.statement_execution.execute_statement(
-                statement="SELECT name, element_type, path FROM osipi.bronze.pi_af_hierarchy LIMIT 5",
+                statement="SELECT name, equipment_type, path FROM osipi.bronze.pi_af_hierarchy LIMIT 5",
                 warehouse_id="4b9b953939869799",
                 catalog="osipi",
                 schema="bronze",
@@ -41,7 +41,7 @@ try:
 except Exception as e:
     print(f"✗ Error: {e}")
     print("\nPossible causes:")
-    print("1. Table doesn't exist yet - run create_tables.py first")
+    print("1. Table doesn't exist yet - run databricks-app/create_tables.py first")
     print("2. No ingestion has run yet - tables are empty")
     print("3. Warehouse ID is incorrect")
 
