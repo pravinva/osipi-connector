@@ -153,6 +153,46 @@ osipi-connector/
    - Shows real-time ingestion metrics
    - UI pages display AF hierarchy, events, alarms
 
+## How Incremental Ingestion Works
+
+Each DLT pipeline run requests a **different time window** using checkpoint-based incremental loading:
+
+### First Run (Initial Load)
+```
+Time Range: Last 24 hours → Now
+API Request: startTime=2025-12-09T12:00:00Z, endTime=2025-12-10T12:00:00Z
+Data Points: ~1,440 per tag (1 per minute)
+Checkpoint Saved: 2025-12-10T12:00:00Z
+```
+
+### Second Run (30 minutes later)
+```
+Time Range: Last checkpoint → Now (NEW data only)
+API Request: startTime=2025-12-10T12:00:00Z, endTime=2025-12-10T12:30:00Z
+Data Points: ~30 per tag (incremental)
+Checkpoint Saved: 2025-12-10T12:30:00Z
+```
+
+### Third Run (30 minutes later)
+```
+Time Range: Last checkpoint → Now (NEW data only)
+API Request: startTime=2025-12-10T12:30:00Z, endTime=2025-12-10T13:00:00Z
+Data Points: ~30 per tag (incremental)
+Checkpoint Saved: 2025-12-10T13:00:00Z
+```
+
+**Result**: No duplicate data, continuous growth of dataset over time.
+
+### Mock Server Data Generation
+
+The mock PI server generates **synthetic time-series data on-demand**:
+- Daily cycles (24-hour sine wave patterns)
+- Random walk with mean reversion
+- 1% anomalies (simulates sensor issues)
+- Quality flags: 95% good, 4% questionable, 1% substituted
+
+Each API request generates fresh data for the requested time window - no pre-stored data needed!
+
 ## Ingestion Modes
 
 ### Batch Mode (Scheduled)
