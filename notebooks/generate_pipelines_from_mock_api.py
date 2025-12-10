@@ -35,7 +35,7 @@ CONNECTION_NAME = "mock_pi_connection"  # Will use mock API, no real auth needed
 # Notebook path - MUST be absolute Workspace path
 # For Repos: /Workspace/Repos/<username>/<repo-name>/src/notebooks/pi_ingestion_pipeline.py
 # For Users: /Workspace/Users/<email>/osipi-connector/src/notebooks/pi_ingestion_pipeline.py
-PIPELINE_NOTEBOOK_PATH = "/Workspace/Repos/production/osipi-connector/src/notebooks/pi_ingestion_pipeline.py"
+PIPELINE_NOTEBOOK_PATH = "/Workspace/Users/pravin.varma@databricks.com/osipi-connector/src/notebooks/pi_ingestion_pipeline.py"
 
 # Ingestion Mode (CONFIGURABLE)
 # - "streaming": Continuous ingestion using DLT continuous mode (real-time, auto-scaling)
