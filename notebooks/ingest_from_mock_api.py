@@ -32,7 +32,6 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, lit, current_timestamp, explode
 from pyspark.sql.types import *
 from datetime import datetime, timedelta
-import json
 
 # Configuration
 # IMPORTANT: Databricks Apps require OAuth authentication from notebooks
@@ -375,6 +374,11 @@ for db in databases:
         print(f"Database {db['Name']}: {len(event_frames)} event frames")
 
         for ef in event_frames:
+            # Convert attributes to MAP<STRING, STRING> format
+            # Ensure all values are strings (not None)
+            raw_attrs = ef.get("Attributes", {})
+            attrs_map = {k: str(v) if v is not None else "" for k, v in raw_attrs.items()} if raw_attrs else {}
+
             event_frames_data.append({
                 "webid": ef["WebId"],
                 "name": ef["Name"],
@@ -383,7 +387,7 @@ for db in databases:
                 "end_time": ef.get("EndTime"),
                 "primary_element_webid": ef.get("PrimaryReferencedElementWebId"),
                 "description": ef.get("Description", ""),
-                "attributes": json.dumps(ef.get("Attributes", {})),  # Store as JSON string
+                "attributes": attrs_map,  # Store as MAP<STRING, STRING>
                 "ingestion_timestamp": datetime.utcnow()
             })
 
