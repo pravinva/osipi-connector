@@ -191,13 +191,18 @@ for i, point in enumerate(sample_points):
             items = data.get("Items", [])
 
             for item in items:
+                # Parse quality - API returns {"Good": true/false}
+                is_good = item.get("Good", True)
+
                 timeseries_data.append({
                     "tag_webid": webid,
                     "tag_name": tag_name,
                     "timestamp": item["Timestamp"],
                     "value": float(item["Value"]),
                     "units": point.get("EngineeringUnits", ""),
-                    "quality": item.get("Good", True),
+                    "quality_good": is_good,
+                    "quality_questionable": False,  # Not provided by mock API
+                    "quality_substituted": False,   # Not provided by mock API
                     "plant": plant,
                     "unit": unit_num,
                     "sensor_type": sensor_type,
@@ -227,9 +232,6 @@ if timeseries_data:
         "ingestion_timestamp",
         col("ingestion_timestamp").cast("timestamp")
     )
-
-    # Cast quality to string
-    timeseries_df = timeseries_df.withColumn("quality", col("quality").cast("string"))
 
     # Cast unit to integer (extracted as int from tag name)
     timeseries_df = timeseries_df.withColumn("unit", col("unit").cast("int"))
