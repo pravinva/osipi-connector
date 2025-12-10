@@ -64,7 +64,8 @@ if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_
         'schema': target_schema,
         'tags': tags,
         'start_time': datetime.now() - timedelta(days=start_time_offset_days),
-        'end_time': datetime.now()
+        'end_time': datetime.now(),
+        'dlt_mode': True  # Skip table creation in DLT
     }
 else:
     # Use basic auth for real PI servers
@@ -82,7 +83,8 @@ else:
         'schema': target_schema,
         'tags': tags,
         'start_time': datetime.now() - timedelta(days=start_time_offset_days),
-        'end_time': datetime.now()
+        'end_time': datetime.now(),
+        'dlt_mode': True  # Skip table creation in DLT
     }
 
 # COMMAND ----------

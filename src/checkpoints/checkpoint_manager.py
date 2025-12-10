@@ -17,13 +17,18 @@ class CheckpointManager:
         self,
         spark: SparkSession,
         checkpoint_table: str,
-        workspace_client: Optional[WorkspaceClient] = None
+        workspace_client: Optional[WorkspaceClient] = None,
+        skip_table_creation: bool = False
     ):
         self.spark = spark
         self.checkpoint_table = checkpoint_table  # e.g., "checkpoints.pi_watermarks"
         self.workspace_client = workspace_client or WorkspaceClient()
         self.logger = logging.getLogger(__name__)
-        self._ensure_checkpoint_table_exists()
+        self.skip_table_creation = skip_table_creation
+
+        # Skip table creation in DLT context (tables created via @dlt.table decorator)
+        if not skip_table_creation:
+            self._ensure_checkpoint_table_exists()
 
     def _ensure_checkpoint_table_exists(self):
         """Create checkpoint table if doesn't exist"""

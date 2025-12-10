@@ -42,9 +42,12 @@ class PILakeflowConnector:
         self.ts_extractor = TimeSeriesExtractor(self.client)
         self.af_extractor = AFHierarchyExtractor(self.client)
         self.ef_extractor = EventFrameExtractor(self.client)
+        # In DLT, skip table creation (managed by @dlt.table decorator)
+        skip_table_creation = config.get('dlt_mode', False)
         self.checkpoint_mgr = CheckpointManager(
             self.spark,
-            f"{config['catalog']}.checkpoints.pi_watermarks"
+            f"{config['catalog']}.checkpoints.pi_watermarks",
+            skip_table_creation=skip_table_creation
         )
         self.writer = DeltaLakeWriter(
             self.spark,
