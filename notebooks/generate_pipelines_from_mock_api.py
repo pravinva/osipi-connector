@@ -92,30 +92,20 @@ CLIENT_SECRET = dbutils.secrets.get(scope="sp-osipi", key="sp-client-secret")
 # Get workspace URL for token endpoint
 workspace_url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
 
-# Get OAuth token using M2M flow for Databricks Apps
-import base64
-token_url = f"{workspace_url}/oidc/v1/token"
-auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
-
-token_response = requests.post(
-    token_url,
-    headers={
-        "Authorization": f"Basic {auth_header}",
-        "Content-Type": "application/x-www-form-urlencoded"
-    },
-    data="grant_type=client_credentials&scope=all-apis"
+# Initialize WorkspaceClient with service principal
+wc = WorkspaceClient(
+    host=workspace_url,
+    client_id=CLIENT_ID,
+    client_secret=CLIENT_SECRET
 )
 
-if token_response.status_code != 200:
-    raise ValueError(f"Failed to get OAuth token: {token_response.status_code} - {token_response.text}")
-
-access_token = token_response.json()["access_token"]
-headers = {"Authorization": f"Bearer {access_token}"}
+# Get OAuth headers - this returns proper Authorization header for Databricks Apps
+headers = wc.config.authenticate()
 
 print(f"✓ Authentication configured")
 print(f"  Using: Service Principal OAuth (M2M)")
 print(f"  Client ID: {CLIENT_ID[:8]}...")
-print(f"  Token acquired successfully")
+print(f"  Headers: {list(headers.keys())}")
 
 # COMMAND ----------
 
