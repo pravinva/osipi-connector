@@ -16,11 +16,9 @@ from typing import Dict, List, Any, Optional
 import random
 import os
 
-# Import the existing mock PI server app
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from tests import mock_pi_server
-from tests.mock_pi_server import app as pi_app
+# Import the PI Web API mock server
+from app.api import pi_web_api
+from app.api.pi_web_api import app as pi_app
 
 # Databricks SDK for querying Unity Catalog tables
 from databricks.sdk import WorkspaceClient
@@ -132,21 +130,21 @@ async def ingestion_dashboard(request: Request):
 async def config_page(request: Request):
     """Mock server configuration page."""
     # Calculate current stats from mock server
-    current_tags = len(mock_pi_server.MOCK_TAGS)
+    current_tags = len(pi_web_api.MOCK_TAGS)
 
     # Count AF elements (flatten hierarchy)
     current_af = 0
-    if "F1DP-DB-Production" in mock_pi_server.MOCK_AF_HIERARCHY:
-        for plant in mock_pi_server.MOCK_AF_HIERARCHY["F1DP-DB-Production"].get("Elements", []):
+    if "F1DP-DB-Production" in pi_web_api.MOCK_AF_HIERARCHY:
+        for plant in pi_web_api.MOCK_AF_HIERARCHY["F1DP-DB-Production"].get("Elements", []):
             current_af += 1  # Plant
             for unit in plant.get("Elements", []):
                 current_af += 1  # Unit
                 current_af += len(unit.get("Elements", []))  # Equipment
 
-    current_events = len(mock_pi_server.MOCK_EVENT_FRAMES)
+    current_events = len(pi_web_api.MOCK_EVENT_FRAMES)
 
     # Count unique plants
-    current_plants = len(set(tag["plant"] for tag in mock_pi_server.MOCK_TAGS.values()))
+    current_plants = len(set(tag["plant"] for tag in pi_web_api.MOCK_TAGS.values()))
 
     return templates.TemplateResponse(
         "config.html",
@@ -545,10 +543,10 @@ async def update_config(config: Dict[str, int]) -> Dict[str, Any]:
         from datetime import datetime, timedelta
 
         # Clear existing data
-        mock_pi_server.MOCK_TAGS.clear()
-        mock_pi_server.MOCK_EVENT_FRAMES.clear()
+        pi_web_api.MOCK_TAGS.clear()
+        pi_web_api.MOCK_EVENT_FRAMES.clear()
 
-        # Regenerate tags using same logic as mock_pi_server.py
+        # Regenerate tags using same logic as pi_web_api.py
         tag_types = [
             ("Temperature", "degC", 20.0, 100.0, 2.0),
             ("Pressure", "bar", 1.0, 10.0, 0.5),
@@ -603,7 +601,7 @@ async def update_config(config: Dict[str, int]) -> Dict[str, Any]:
                     tag_webid = f"F1DP-{plant}-U{unit:03d}-{sensor_type[:4]}-{tag_id:06d}"
                     base_value = random.uniform(min_val, max_val)
 
-                    mock_pi_server.MOCK_TAGS[tag_webid] = {
+                    pi_web_api.MOCK_TAGS[tag_webid] = {
                         "name": f"{plant}_Unit{unit:03d}_{sensor_type}_PV",
                         "units": units,
                         "base": base_value,
@@ -618,18 +616,18 @@ async def update_config(config: Dict[str, int]) -> Dict[str, Any]:
                     }
                     tag_id += 1
 
-                    if len(mock_pi_server.MOCK_TAGS) >= tag_count:
+                    if len(pi_web_api.MOCK_TAGS) >= tag_count:
                         break
-                if len(mock_pi_server.MOCK_TAGS) >= tag_count:
+                if len(pi_web_api.MOCK_TAGS) >= tag_count:
                     break
-            if len(mock_pi_server.MOCK_TAGS) >= tag_count:
+            if len(pi_web_api.MOCK_TAGS) >= tag_count:
                 break
 
         # Regenerate AF Hierarchy
         af_plant_limit = min(len(plant_names), 10) if tag_count > 10000 else len(plant_names)
         af_unit_limit = min(unit_count, 10) if tag_count > 10000 else unit_count
 
-        mock_pi_server.MOCK_AF_HIERARCHY["F1DP-DB-Production"]["Elements"].clear()
+        pi_web_api.MOCK_AF_HIERARCHY["F1DP-DB-Production"]["Elements"].clear()
 
         for plant in plant_names[:af_plant_limit]:
             plant_element = {
@@ -668,7 +666,7 @@ async def update_config(config: Dict[str, int]) -> Dict[str, Any]:
 
                 plant_element["Elements"].append(unit_element)
 
-            mock_pi_server.MOCK_AF_HIERARCHY["F1DP-DB-Production"]["Elements"].append(plant_element)
+            pi_web_api.MOCK_AF_HIERARCHY["F1DP-DB-Production"]["Elements"].append(plant_element)
 
         # Regenerate event frames
         event_templates = [
@@ -720,24 +718,24 @@ async def update_config(config: Dict[str, int]) -> Dict[str, Any]:
                     "Acknowledged": random.choice([True, False])
                 }
 
-            mock_pi_server.MOCK_EVENT_FRAMES.append(event)
+            pi_web_api.MOCK_EVENT_FRAMES.append(event)
 
         # Calculate AF elements
         af_elements = 0
-        if "F1DP-DB-Production" in mock_pi_server.MOCK_AF_HIERARCHY:
-            for plant in mock_pi_server.MOCK_AF_HIERARCHY["F1DP-DB-Production"].get("Elements", []):
+        if "F1DP-DB-Production" in pi_web_api.MOCK_AF_HIERARCHY:
+            for plant in pi_web_api.MOCK_AF_HIERARCHY["F1DP-DB-Production"].get("Elements", []):
                 af_elements += 1
                 for unit in plant.get("Elements", []):
                     af_elements += 1
                     af_elements += len(unit.get("Elements", []))
 
-        print(f"✓ Regenerated: {len(mock_pi_server.MOCK_TAGS)} tags, {af_elements} AF elements, {len(mock_pi_server.MOCK_EVENT_FRAMES)} events")
+        print(f"✓ Regenerated: {len(pi_web_api.MOCK_TAGS)} tags, {af_elements} AF elements, {len(pi_web_api.MOCK_EVENT_FRAMES)} events")
 
         return {
             "success": True,
-            "tags": len(mock_pi_server.MOCK_TAGS),
+            "tags": len(pi_web_api.MOCK_TAGS),
             "af_elements": af_elements,
-            "events": len(mock_pi_server.MOCK_EVENT_FRAMES),
+            "events": len(pi_web_api.MOCK_EVENT_FRAMES),
             "plants": len(plant_names)
         }
 
@@ -750,7 +748,7 @@ async def update_config(config: Dict[str, int]) -> Dict[str, Any]:
 
 
 # ============================================================================
-# PI WEB API ROUTES (already defined in mock_pi_server.py)
+# PI WEB API ROUTES (already defined in pi_web_api.py)
 # ============================================================================
 # The routes are already included from the imported pi_app:
 # - /piwebapi
