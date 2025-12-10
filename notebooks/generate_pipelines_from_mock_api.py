@@ -32,10 +32,10 @@ TARGET_CATALOG = "osipi"
 TARGET_SCHEMA = "bronze"
 CONNECTION_NAME = "mock_pi_connection"  # Will use mock API, no real auth needed
 
-# Notebook path - MUST be absolute Workspace path
-# For Repos: /Workspace/Repos/<username>/<repo-name>/src/notebooks/pi_ingestion_pipeline.py
-# For Users: /Workspace/Users/<email>/osipi-connector/src/notebooks/pi_ingestion_pipeline.py
-PIPELINE_NOTEBOOK_PATH = "/Workspace/Users/pravin.varma@databricks.com/osipi-connector/src/notebooks/pi_ingestion_pipeline.py"
+# Notebook path - MUST be absolute Workspace path WITHOUT .py extension
+# For Repos: /Workspace/Repos/<username>/<repo-name>/src/notebooks/pi_ingestion_pipeline
+# For Users: /Workspace/Users/<email>/osipi-connector/src/notebooks/pi_ingestion_pipeline
+PIPELINE_NOTEBOOK_PATH = "/Workspace/Users/pravin.varma@databricks.com/osipi-connector/src/notebooks/pi_ingestion_pipeline"
 
 # Ingestion Mode (CONFIGURABLE)
 # - "streaming": Continuous ingestion using DLT continuous mode (real-time, auto-scaling)
