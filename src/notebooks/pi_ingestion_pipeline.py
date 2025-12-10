@@ -132,6 +132,16 @@ def pi_watermarks():
     """
     Checkpoint table tracking last successful ingestion timestamp per tag.
     """
-    # This table is managed by the checkpoint manager in the connector
-    # DLT will create and maintain it based on connector writes
-    pass
+    from pyspark.sql.types import StructType, StructField, StringType, TimestampType, LongType
+
+    # Define schema for checkpoint table
+    schema = StructType([
+        StructField("tag_webid", StringType(), True),
+        StructField("tag_name", StringType(), True),
+        StructField("last_timestamp", TimestampType(), True),
+        StructField("last_ingestion_run", TimestampType(), True),
+        StructField("record_count", LongType(), True)
+    ])
+
+    # Return empty DataFrame with schema - will be populated by checkpoint manager
+    return spark.createDataFrame([], schema)
