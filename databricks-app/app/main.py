@@ -150,7 +150,16 @@ async def config_page(request: Request):
 
 @app.get("/data/af-hierarchy", response_class=HTMLResponse, include_in_schema=False)
 async def af_hierarchy_page(request: Request):
-    """View AF Hierarchy data from Unity Catalog."""
+    """View AF Hierarchy Tree (Interactive)."""
+    return templates.TemplateResponse(
+        "af_hierarchy_tree.html",
+        {"request": request}
+    )
+
+
+@app.get("/data/af-hierarchy-table", response_class=HTMLResponse, include_in_schema=False)
+async def af_hierarchy_table_page(request: Request):
+    """View AF Hierarchy data as table."""
     results = execute_sql(f"""
         SELECT
             name,
@@ -167,7 +176,7 @@ async def af_hierarchy_page(request: Request):
         "data_table.html",
         {
             "request": request,
-            "title": "AF Hierarchy",
+            "title": "AF Hierarchy (Table View)",
             "data": results if results else [],
             "columns": ["name", "element_type", "template_name", "path", "description"]
         }

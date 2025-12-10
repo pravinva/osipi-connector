@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AF Hierarchy Explorer - OSI PI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        .nav {
+            background: #f8f9fa;
+            padding: 15px 30px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .nav a {
+            color: #667eea;
+            text-decoration: none;
+            margin-right: 20px;
+            font-weight: 500;
+            padding: 8px 16px;
+            border-radius: 6px;
+            transition: all 0.3s;
+        }
+        .nav a:hover {
+            background: #667eea;
+            color: white;
+        }
+        .content {
+            padding: 30px;
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 30px;
+        }
+        .sidebar {
+            border-right: 2px solid #e0e0e0;
+            padding-right: 30px;
+        }
+        .stats-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .stats-card h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .stat-item:last-child {
+            border-bottom: none;
+        }
+        .stat-value {
+            font-weight: 600;
+            color: #667eea;
+        }
+        .tree-view {
+            background: #fafbfc;
+            border-radius: 8px;
+            padding: 20px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .tree-node {
+            margin-left: 20px;
+            margin-bottom: 5px;
+        }
+        .tree-node.root {
+            margin-left: 0;
+        }
+        .node-label {
+            padding: 8px 12px;
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            cursor: pointer;
+            display: inline-block;
+            margin-bottom: 5px;
+            transition: all 0.2s;
+        }
+        .node-label:hover {
+            background: #f0f0f0;
+            border-color: #667eea;
+        }
+        .node-label.expanded {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        .node-icon {
+            display: inline-block;
+            width: 20px;
+            text-align: center;
+            margin-right: 5px;
+        }
+        .node-type {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            margin-left: 8px;
+            font-weight: 600;
+        }
+        .type-plant { background: #e8f5e9; color: #2e7d32; }
+        .type-unit { background: #fff3e0; color: #e65100; }
+        .type-equipment { background: #e3f2fd; color: #1976d2; }
+        .type-element { background: #f3e5f5; color: #7b1fa2; }
+        .children {
+            display: none;
+        }
+        .children.show {
+            display: block;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px;
+        }
+        .search-box {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        .search-box:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏭 AF Hierarchy Explorer</h1>
+            <p>Asset Framework Structure from osipi.bronze.pi_af_hierarchy</p>
+        </div>
+
+        <div class="nav">
+            <a href="/">← Home</a>
+            <a href="/ingestion">Dashboard</a>
+            <a href="/data/af-hierarchy">AF Hierarchy (Table)</a>
+            <a href="/data/events">Events</a>
+            <a href="/data/alarms">Alarms</a>
+        </div>
+
+        <div class="content">
+            <div class="sidebar">
+                <div class="stats-card">
+                    <h3>Hierarchy Stats</h3>
+                    <div class="stat-item">
+                        <span>Total Elements</span>
+                        <span class="stat-value" id="total-elements">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Plants</span>
+                        <span class="stat-value" id="plant-count">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Units</span>
+                        <span class="stat-value" id="unit-count">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Equipment</span>
+                        <span class="stat-value" id="equipment-count">--</span>
+                    </div>
+                </div>
+
+                <input type="text" class="search-box" id="search" placeholder="Search elements..." />
+            </div>
+
+            <div class="tree-view" id="tree-container">
+                <div class="loading">Loading AF hierarchy...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let hierarchyData = [];
+
+        async function loadHierarchy() {
+            try {
+                const response = await fetch('/api/data/af_hierarchy?limit=10000');
+                const result = await response.json();
+
+                if (result.data && result.data.length > 0) {
+                    hierarchyData = result.data;
+                    updateStats(result.data);
+                    renderTree(result.data);
+                } else {
+                    document.getElementById('tree-container').innerHTML =
+                        '<div class="error">No AF hierarchy data found. Please run ingestion first.</div>';
+                }
+            } catch (error) {
+                console.error('Error loading hierarchy:', error);
+                document.getElementById('tree-container').innerHTML =
+                    '<div class="error">Error loading data: ' + error.message + '</div>';
+            }
+        }
+
+        function updateStats(data) {
+            document.getElementById('total-elements').textContent = data.length;
+
+            const types = data.reduce((acc, item) => {
+                const type = item.element_type || 'Unknown';
+                acc[type] = (acc[type] || 0) + 1;
+                return acc;
+            }, {});
+
+            document.getElementById('plant-count').textContent = types.Plant || 0;
+            document.getElementById('unit-count').textContent = types.Unit || 0;
+            document.getElementById('equipment-count').textContent = types.Equipment || 0;
+        }
+
+        function renderTree(data) {
+            // Build hierarchy from flat data
+            const tree = buildTree(data);
+
+            const container = document.getElementById('tree-container');
+            container.innerHTML = '';
+
+            if (tree.length === 0) {
+                container.innerHTML = '<div class="loading">No root elements found</div>';
+                return;
+            }
+
+            tree.forEach(node => {
+                container.appendChild(createNodeElement(node, data));
+            });
+        }
+
+        function buildTree(data) {
+            // Group by path depth
+            const roots = data.filter(item => {
+                const path = item.path || '';
+                const depth = (path.match(/\//g) || []).length;
+                return depth <= 1; // Root level
+            });
+
+            return roots.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        }
+
+        function getChildren(parentPath, data) {
+            return data.filter(item => {
+                const path = item.path || '';
+                return path.startsWith(parentPath + '/') &&
+                       path.split('/').length === parentPath.split('/').length + 1;
+            }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        }
+
+        function createNodeElement(node, allData) {
+            const div = document.createElement('div');
+            div.className = 'tree-node';
+
+            const label = document.createElement('div');
+            label.className = 'node-label';
+
+            const children = getChildren(node.path, allData);
+            const hasChildren = children.length > 0;
+
+            const icon = hasChildren ? '▶' : '•';
+            const typeCls = `type-${(node.element_type || 'element').toLowerCase()}`;
+
+            label.innerHTML = `
+                <span class="node-icon">${icon}</span>
+                <strong>${node.name || 'Unnamed'}</strong>
+                <span class="node-type ${typeCls}">${node.element_type || 'Element'}</span>
+            `;
+
+            div.appendChild(label);
+
+            if (hasChildren) {
+                const childrenContainer = document.createElement('div');
+                childrenContainer.className = 'children';
+
+                children.forEach(child => {
+                    childrenContainer.appendChild(createNodeElement(child, allData));
+                });
+
+                div.appendChild(childrenContainer);
+
+                label.onclick = () => {
+                    label.classList.toggle('expanded');
+                    childrenContainer.classList.toggle('show');
+                    label.querySelector('.node-icon').textContent =
+                        childrenContainer.classList.contains('show') ? '▼' : '▶';
+                };
+            }
+
+            return div;
+        }
+
+        // Search functionality
+        document.getElementById('search').addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            if (query.length < 2) {
+                renderTree(hierarchyData);
+                return;
+            }
+
+            const filtered = hierarchyData.filter(item =>
+                (item.name || '').toLowerCase().includes(query) ||
+                (item.path || '').toLowerCase().includes(query) ||
+                (item.template_name || '').toLowerCase().includes(query)
+            );
+
+            renderTree(filtered);
+        });
+
+        // Load on page load
+        loadHierarchy();
+    </script>
+</body>
+</html>
