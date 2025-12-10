@@ -246,6 +246,7 @@ config_df = config_df[[
     'target_catalog',
     'target_schema',
     'pipeline_group',
+    'priority',
     'schedule',
     'start_time_offset_days'
 ]]
