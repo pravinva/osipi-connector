@@ -92,65 +92,51 @@ else:
 # if auth type is 'oauth', use the provided headers instead of basic auth
 
 # COMMAND ----------
-# Define DLT table for PI time-series data
+# Define DLT table for PI time-series data using simple overlapping windows
 
-@dlt.table(
-    name="pi_timeseries",
-    comment="PI Web API time-series data ingested via Lakeflow connector",
-    table_properties={
-        "quality": "bronze",
-        "pipelines.autoOptimize.managed": "true",
-        "pipelines.reset.allowed": "true"
-    },
-    partition_cols=["partition_date"],
-    temporary=False
-)
-def pi_timeseries_bronze():
+@dlt.view(name="pi_timeseries_raw")
+def pi_timeseries_raw():
     """
-    Bronze table for raw PI time-series data.
-
-    Runs incrementally using checkpoints to track last ingestion timestamp per tag.
+    Raw extraction view - fetches last 7 days of data on each run.
+    Overlapping windows ensure no data is missed between runs.
     """
-    # Initialize connector
-    connector = PILakeflowConnector(config)
+    from datetime import datetime, timedelta
 
-    # Run extraction (returns DataFrame)
+    # Always fetch last 7 days (overlapping for safety)
+    start_time = datetime.now() - timedelta(days=7)
+    end_time = datetime.now()
+
+    # Update config
+    extraction_config = config.copy()
+    extraction_config['start_time'] = start_time
+    extraction_config['end_time'] = end_time
+
+    # Extract data
+    connector = PILakeflowConnector(extraction_config)
     df = connector.extract_timeseries_to_df()
 
-    # Add partition column
+    # Add metadata
     df = df.withColumn("partition_date", col("timestamp").cast("date"))
     df = df.withColumn("ingestion_timestamp", current_timestamp())
 
     return df
 
-# COMMAND ----------
-# Define DLT table for checkpoints
-
-@dlt.table(
-    name="pi_watermarks",
-    comment="Checkpoint watermarks for incremental ingestion (refreshed each run)",
+# Bronze table with MERGE to handle duplicates
+dlt.create_streaming_table(
+    name="pi_timeseries",
+    comment="PI Web API time-series data with automatic deduplication",
     table_properties={
-        "pipelines.reset.allowed": "true"
-    }
+        "quality": "bronze",
+        "pipelines.autoOptimize.managed": "true",
+        "delta.enableChangeDataFeed": "true"
+    },
+    partition_cols=["partition_date"]
 )
-def pi_watermarks():
-    """
-    Checkpoint table tracking last successful ingestion timestamp per tag.
 
-    This table is completely recomputed on each run to reflect the latest
-    watermark per tag from the pi_timeseries table.
-    """
-    from pyspark.sql.functions import max as spark_max, count, current_timestamp, lit
-
-    # Read ALL timeseries data (complete refresh)
-    df = dlt.read("pi_timeseries")
-
-    # Calculate max timestamp and record count per tag
-    # Note: tag_name is set to tag_webid since we don't have friendly names yet
-    watermarks_df = df.groupBy("tag_webid").agg(
-        spark_max("timestamp").alias("last_timestamp"),
-        count("*").alias("record_count")
-    ).withColumn("tag_name", col("tag_webid")) \
-     .withColumn("last_ingestion_run", current_timestamp())
-
-    return watermarks_df
+dlt.apply_changes(
+    target="pi_timeseries",
+    source="pi_timeseries_raw",
+    keys=["tag_webid", "timestamp"],
+    sequence_by="ingestion_timestamp",
+    stored_as_scd_type=1
+)
