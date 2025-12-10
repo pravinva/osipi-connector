@@ -99,9 +99,11 @@ else:
     comment="PI Web API time-series data ingested via Lakeflow connector",
     table_properties={
         "quality": "bronze",
-        "pipelines.autoOptimize.managed": "true"
+        "pipelines.autoOptimize.managed": "true",
+        "pipelines.reset.allowed": "true"
     },
-    partition_cols=["partition_date"]
+    partition_cols=["partition_date"],
+    temporary=False
 )
 def pi_timeseries_bronze():
     """
@@ -126,7 +128,10 @@ def pi_timeseries_bronze():
 
 @dlt.table(
     name="pi_watermarks",
-    comment="Checkpoint watermarks for incremental ingestion"
+    comment="Checkpoint watermarks for incremental ingestion",
+    table_properties={
+        "pipelines.reset.allowed": "true"
+    }
 )
 def pi_watermarks():
     """
