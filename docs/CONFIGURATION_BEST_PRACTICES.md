@@ -265,3 +265,5 @@ if not warehouse_id:
 
 **The connector follows proper Lakeflow patterns. The demo warehouse ID is just a convenience fallback, not a fundamental flaw.**
 
+
+

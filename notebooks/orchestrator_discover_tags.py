@@ -170,3 +170,5 @@ Partition Assignments Table: {partition_table}
 ✅ Ready for parallel extraction!
 """)
 
+
+
