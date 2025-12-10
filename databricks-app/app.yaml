@@ -6,6 +6,17 @@ command:
   - "--port"
   - "8000"
 
+# Environment variables for Unity Catalog access
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    value: "4b9b953939869799"
+  - name: UC_CATALOG
+    value: "osipi"
+  - name: UC_SCHEMA
+    value: "bronze"
+  - name: MOCK_PI_TAG_COUNT
+    value: "1040"
+
 # Optional: Specify resources
 resources:
   - name: pi-lakeflow-dashboard
