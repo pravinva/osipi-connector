@@ -456,7 +456,7 @@ async def get_recent_events() -> List[Dict[str, Any]]:
 
 
 @app.get("/api/data/af_hierarchy")
-async def get_af_hierarchy_data(limit: int = 100) -> Dict[str, Any]:
+async def get_af_hierarchy_data(limit: int = 100000) -> Dict[str, Any]:
     """Get AF hierarchy data from Unity Catalog."""
     results = execute_sql(f"""
         SELECT

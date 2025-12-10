@@ -221,7 +221,7 @@
 
         async function loadHierarchy() {
             try {
-                const response = await fetch('/api/data/af_hierarchy?limit=10000');
+                const response = await fetch('/api/data/af_hierarchy?limit=100000');
                 const result = await response.json();
 
                 if (result.data && result.data.length > 0) {
@@ -271,11 +271,12 @@
         }
 
         function buildTree(data) {
-            // Group by path depth
+            // Group by path depth - paths use backslash separator (e.g., \\Plant\Unit\Equipment)
             const roots = data.filter(item => {
                 const path = item.path || '';
-                const depth = (path.match(/\//g) || []).length;
-                return depth <= 1; // Root level
+                // Count backslashes to determine depth
+                const parts = path.split('\\').filter(p => p.length > 0);
+                return parts.length === 1; // Root level (only one part)
             });
 
             return roots.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -284,8 +285,13 @@
         function getChildren(parentPath, data) {
             return data.filter(item => {
                 const path = item.path || '';
-                return path.startsWith(parentPath + '/') &&
-                       path.split('/').length === parentPath.split('/').length + 1;
+                // Check if path starts with parent and is exactly one level deeper
+                if (!path.startsWith(parentPath + '\\')) {
+                    return false;
+                }
+                const parentParts = parentPath.split('\\').filter(p => p.length > 0);
+                const childParts = path.split('\\').filter(p => p.length > 0);
+                return childParts.length === parentParts.length + 1;
             }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         }
 
