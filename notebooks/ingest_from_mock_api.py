@@ -395,6 +395,12 @@ print(f"✓ Extracted {len(event_frames_data)} event frames")
 if event_frames_data:
     ef_df = spark.createDataFrame(event_frames_data)
 
+    # Convert timestamp columns from string to timestamp type
+    # API returns ISO 8601 format: "2025-12-10T12:00:00Z"
+    ef_df = ef_df.withColumn("start_time", col("start_time").cast("timestamp"))
+    ef_df = ef_df.withColumn("end_time", col("end_time").cast("timestamp"))
+    ef_df = ef_df.withColumn("ingestion_timestamp", col("ingestion_timestamp").cast("timestamp"))
+
     display(ef_df.limit(10))
 
     ef_df.write.mode("append").saveAsTable(f"{UC_CATALOG}.{UC_SCHEMA}.pi_event_frames")
