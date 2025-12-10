@@ -82,3 +82,7 @@ config/local*.yml
 
 
 
+# Auto-generated - Do not edit manually
+# Run notebooks/generate_pipelines_from_mock_api.py to regenerate
+deployment/resources/pipelines.yml
+deployment/resources/jobs.yml

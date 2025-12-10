@@ -8,13 +8,13 @@ targets:
     mode: development
     default: true
     workspace:
-      host: https://your-workspace.cloud.databricks.com
+      host: https://e2-demo-field-eng.cloud.databricks.com
 
   # Production target
   prod:
     mode: production
     workspace:
-      host: https://your-workspace.cloud.databricks.com
+      host: https://e2-demo-field-eng.cloud.databricks.com
       root_path: /Workspace/production/osipi-connector
 
 # Resources
@@ -61,15 +61,15 @@ resources:
 variables:
   catalog:
     description: Unity Catalog name
-    default: main
+    default: osipi
 
   schema:
     description: Schema name for PI data
     default: bronze
 
   pi_web_api_url:
-    description: PI Web API endpoint URL
-    default: https://pi-server.company.com/piwebapi
+    description: PI Web API endpoint URL (Mock API)
+    default: https://osipi-webserver-1444828305810485.aws.databricksapps.com
 
   pi_auth_type:
     description: Authentication type (basic, kerberos, oauth)
@@ -80,3 +80,5 @@ include:
   - "src/**/*.py"
   - "notebooks/**/*.py"
   - "config/**/*.yaml"
+  - "deployment/resources/pipelines.yml"  # Auto-generated DLT pipelines
+  - "deployment/resources/jobs.yml"       # Auto-generated scheduled jobs

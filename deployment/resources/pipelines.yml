@@ -1,22 +1,23 @@
 resources:
   pipelines:
-    pi_demo_pipeline_pi_ingestion_1:
-      name: pi_demo_pi_ingestion_group_1
-      catalog: main
+    osipi_pipeline_pi_ingestion_1:
+      name: osipi_ingestion_group_1
+      catalog: osipi
       target: bronze
       clusters:
       - label: default
+        node_type_id: i3.xlarge
         num_workers: 2
       libraries:
       - notebook:
           path: ../src/notebooks/pi_ingestion_pipeline.py
       configuration:
-        pi.tags: F1DP-TAG-001,F1DP-TAG-002,F1DP-TAG-003
-        pi.server.url: https://pi-server.company.com/piwebapi
-        pi.connection.name: pi_connection_prod
-        pi.target.catalog: main
+        pi.tags: AUTO_GENERATED  # Will be populated by generator notebook
+        pi.server.url: https://osipi-webserver-1444828305810485.aws.databricksapps.com
+        pi.connection.name: mock_pi_connection
+        pi.target.catalog: osipi
         pi.target.schema: bronze
-        pi.start_time_offset_days: '30'
+        pi.start_time_offset_days: '7'
     pi_demo_pipeline_pi_ingestion_2:
       name: pi_demo_pi_ingestion_group_2
       catalog: main
