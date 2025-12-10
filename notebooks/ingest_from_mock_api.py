@@ -316,9 +316,9 @@ for db in databases:
                 "template_name": elem.get("TemplateName", ""),
                 "description": elem.get("Description", ""),
                 "path": elem.get("Path", ""),
-                "parent_webid": parent_webid,
+                "parent_webid": parent_webid if parent_webid else "",  # Convert None to empty string
                 "plant": plant,
-                "unit": None,  # Could extract from name if needed
+                "unit": 0,  # Default to 0 instead of None
                 "equipment_type": elem.get("TemplateName", "").replace("Template", ""),
                 "ingestion_timestamp": datetime.utcnow()
             })
