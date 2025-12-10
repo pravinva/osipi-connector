@@ -38,8 +38,17 @@ CONNECTION_NAME = "mock_pi_connection"  # Will use mock API, no real auth needed
 INGESTION_MODE = "batch"  # Options: "streaming" or "batch"
 
 # Load Balancing Strategy (CONFIGURABLE)
-MAX_TAGS_TO_FETCH = None  # Set to None for all tags, or limit (e.g., 1000 for testing)
-TAGS_PER_PIPELINE = 100   # Number of tags per pipeline (adjust based on your needs)
+# Max tags to fetch from API (None = all tags, or set limit like 1000)
+MAX_TAGS_TO_FETCH = None
+
+# IMPORTANT: Controls number of pipelines created!
+# Formula: Number of Pipelines = Total Tags / TAGS_PER_PIPELINE
+# Examples:
+#   - TAGS_PER_PIPELINE = 10000 → 1 pipeline (all tags in one pipeline)
+#   - TAGS_PER_PIPELINE = 2000  → 5 pipelines (recommended for demo)
+#   - TAGS_PER_PIPELINE = 1000  → 10 pipelines
+#   - TAGS_PER_PIPELINE = 100   → 100 pipelines (for production scale)
+TAGS_PER_PIPELINE = 2000   # ← CHANGE THIS to control pipeline count
 
 # Batch Mode Schedules (only used when INGESTION_MODE = "batch")
 SCHEDULE_15MIN = "0 */15 * * * ?"  # Every 15 minutes (Quartz cron)
