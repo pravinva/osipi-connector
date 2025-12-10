@@ -10,7 +10,7 @@ resources:
         num_workers: 2
       libraries:
       - notebook:
-          path: ../src/notebooks/pi_ingestion_pipeline.py
+          path: ../../src/notebooks/pi_ingestion_pipeline.py
       configuration:
         pi.tags: AUTO_GENERATED  # Will be populated by generator notebook
         pi.server.url: https://osipi-webserver-1444828305810485.aws.databricksapps.com
@@ -27,7 +27,7 @@ resources:
         num_workers: 2
       libraries:
       - notebook:
-          path: ../src/notebooks/pi_ingestion_pipeline.py
+          path: ../../src/notebooks/pi_ingestion_pipeline.py
       configuration:
         pi.tags: F1DP-TAG-004,F1DP-TAG-005,F1DP-TAG-006
         pi.server.url: https://pi-server.company.com/piwebapi
@@ -44,7 +44,7 @@ resources:
         num_workers: 2
       libraries:
       - notebook:
-          path: ../src/notebooks/pi_ingestion_pipeline.py
+          path: ../../src/notebooks/pi_ingestion_pipeline.py
       configuration:
         pi.tags: F1DP-TAG-007,F1DP-TAG-008
         pi.server.url: https://pi-server.company.com/piwebapi

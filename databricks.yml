@@ -17,45 +17,8 @@ targets:
       host: https://e2-demo-field-eng.cloud.databricks.com
       root_path: /Workspace/production/osipi-connector
 
-# Resources
-resources:
-  # Connector job
-  jobs:
-    osipi_connector_job:
-      name: "OSI PI Connector - ${bundle.target}"
-
-      tasks:
-        - task_key: extract_pi_data
-          job_cluster_key: connector_cluster
-          notebook_task:
-            notebook_path: ./notebooks/connector_job.py
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
-
-        - task_key: validate_data_quality
-          depends_on:
-            - task_key: extract_pi_data
-          job_cluster_key: connector_cluster
-          notebook_task:
-            notebook_path: ./notebooks/data_quality_check.py
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.schema}
-
-      job_clusters:
-        - job_cluster_key: connector_cluster
-          new_cluster:
-            spark_version: 14.3.x-scala2.12
-            node_type_id: i3.xlarge
-            num_workers: 2
-            spark_conf:
-              spark.databricks.delta.preview.enabled: true
-
-      schedule:
-        quartz_cron_expression: "0 0 * * * ?"  # Hourly
-        timezone_id: "UTC"
-        pause_status: UNPAUSED
+# Resources will be dynamically generated from deployment/resources/*.yml
+# Run notebooks/generate_pipelines_from_mock_api.py to create pipeline definitions
 
 # Variables
 variables:
@@ -75,10 +38,6 @@ variables:
     description: Authentication type (basic, kerberos, oauth)
     default: basic
 
-# Include patterns
+# Include DLT pipelines and jobs from deployment resources
 include:
-  - "src/**/*.py"
-  - "notebooks/**/*.py"
-  - "config/**/*.yaml"
-  - "deployment/resources/pipelines.yml"  # Auto-generated DLT pipelines
-  - "deployment/resources/jobs.yml"       # Auto-generated scheduled jobs
+  - "deployment/resources/*.yml"
