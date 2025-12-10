@@ -148,6 +148,84 @@ async def config_page(request: Request):
     )
 
 
+@app.get("/data/af-hierarchy", response_class=HTMLResponse, include_in_schema=False)
+async def af_hierarchy_page(request: Request):
+    """View AF Hierarchy data from Unity Catalog."""
+    results = execute_sql(f"""
+        SELECT
+            name,
+            element_type,
+            template_name,
+            path,
+            description
+        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_af_hierarchy
+        ORDER BY path
+        LIMIT 100
+    """)
+
+    return templates.TemplateResponse(
+        "data_table.html",
+        {
+            "request": request,
+            "title": "AF Hierarchy",
+            "data": results if results else [],
+            "columns": ["name", "element_type", "template_name", "path", "description"]
+        }
+    )
+
+
+@app.get("/data/events", response_class=HTMLResponse, include_in_schema=False)
+async def events_page(request: Request):
+    """View Event Frames from Unity Catalog."""
+    results = execute_sql(f"""
+        SELECT
+            name,
+            template_name,
+            start_time,
+            end_time,
+            attributes
+        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_event_frames
+        ORDER BY start_time DESC
+        LIMIT 100
+    """)
+
+    return templates.TemplateResponse(
+        "data_table.html",
+        {
+            "request": request,
+            "title": "Event Frames (All Types)",
+            "data": results if results else [],
+            "columns": ["name", "template_name", "start_time", "end_time", "attributes"]
+        }
+    )
+
+
+@app.get("/data/alarms", response_class=HTMLResponse, include_in_schema=False)
+async def alarms_page(request: Request):
+    """View Alarms (AlarmTemplate events) from Unity Catalog."""
+    results = execute_sql(f"""
+        SELECT
+            name,
+            start_time,
+            end_time,
+            attributes
+        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_event_frames
+        WHERE template_name = 'AlarmTemplate'
+        ORDER BY start_time DESC
+        LIMIT 100
+    """)
+
+    return templates.TemplateResponse(
+        "data_table.html",
+        {
+            "request": request,
+            "title": "Alarms",
+            "data": results if results else [],
+            "columns": ["name", "start_time", "end_time", "attributes"]
+        }
+    )
+
+
 # ============================================================================
 # DASHBOARD API ENDPOINTS
 # ============================================================================
@@ -345,6 +423,70 @@ async def get_recent_events() -> List[Dict[str, Any]]:
         })
 
     return events
+
+
+@app.get("/api/data/af_hierarchy")
+async def get_af_hierarchy_data(limit: int = 100) -> Dict[str, Any]:
+    """Get AF hierarchy data from Unity Catalog."""
+    results = execute_sql(f"""
+        SELECT
+            name,
+            element_type,
+            template_name,
+            path,
+            description
+        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_af_hierarchy
+        ORDER BY path
+        LIMIT {limit}
+    """)
+
+    return {
+        "data": results if results else [],
+        "count": len(results) if results else 0
+    }
+
+
+@app.get("/api/data/event_frames")
+async def get_event_frames_data(limit: int = 100) -> Dict[str, Any]:
+    """Get event frames data from Unity Catalog."""
+    results = execute_sql(f"""
+        SELECT
+            name,
+            template_name,
+            start_time,
+            end_time,
+            attributes,
+            primary_referenced_element_webid
+        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_event_frames
+        ORDER BY start_time DESC
+        LIMIT {limit}
+    """)
+
+    return {
+        "data": results if results else [],
+        "count": len(results) if results else 0
+    }
+
+
+@app.get("/api/data/timeseries")
+async def get_timeseries_data(limit: int = 100) -> Dict[str, Any]:
+    """Get timeseries data from Unity Catalog."""
+    results = execute_sql(f"""
+        SELECT
+            tag_name,
+            timestamp,
+            value,
+            units,
+            ingestion_timestamp
+        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries
+        ORDER BY timestamp DESC
+        LIMIT {limit}
+    """)
+
+    return {
+        "data": results if results else [],
+        "count": len(results) if results else 0
+    }
 
 
 @app.post("/api/config/update")

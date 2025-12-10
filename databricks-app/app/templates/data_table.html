@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - OSI PI Data Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        .nav {
+            background: #f8f9fa;
+            padding: 15px 30px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .nav a {
+            color: #667eea;
+            text-decoration: none;
+            margin-right: 20px;
+            font-weight: 500;
+            padding: 8px 16px;
+            border-radius: 6px;
+            transition: all 0.3s;
+        }
+        .nav a:hover {
+            background: #667eea;
+            color: white;
+        }
+        .content {
+            padding: 30px;
+        }
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .table-container {
+            overflow-x: auto;
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        tr:hover {
+            background: #f5f5f5;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        .empty-state svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+        .code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            word-break: break-all;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-alarm { background: #ffebee; color: #c62828; }
+        .badge-batch { background: #e8f5e9; color: #2e7d32; }
+        .badge-maintenance { background: #fff3e0; color: #e65100; }
+        .badge-downtime { background: #fce4ec; color: #c2185b; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{{ title }}</h1>
+            <p>Unity Catalog: osipi.bronze</p>
+        </div>
+
+        <div class="nav">
+            <a href="/">← Home</a>
+            <a href="/ingestion">Dashboard</a>
+            <a href="/data/af-hierarchy">AF Hierarchy</a>
+            <a href="/data/events">All Events</a>
+            <a href="/data/alarms">Alarms</a>
+        </div>
+
+        <div class="content">
+            {% if data %}
+            <div class="info-box">
+                <strong>Showing:</strong> {{ data|length }} records (limit 100)
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            {% for col in columns %}
+                            <th>{{ col.replace('_', ' ').title() }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in data %}
+                        <tr>
+                            {% for col in columns %}
+                            <td>
+                                {% if col == 'template_name' %}
+                                    {% if row[col] == 'AlarmTemplate' %}
+                                        <span class="badge badge-alarm">{{ row[col] }}</span>
+                                    {% elif row[col] == 'BatchRunTemplate' %}
+                                        <span class="badge badge-batch">{{ row[col] }}</span>
+                                    {% elif row[col] == 'MaintenanceTemplate' %}
+                                        <span class="badge badge-maintenance">{{ row[col] }}</span>
+                                    {% elif row[col] == 'DowntimeTemplate' %}
+                                        <span class="badge badge-downtime">{{ row[col] }}</span>
+                                    {% else %}
+                                        {{ row[col] or 'N/A' }}
+                                    {% endif %}
+                                {% elif col == 'attributes' %}
+                                    <span class="code">{{ row[col] }}</span>
+                                {% else %}
+                                    {{ row[col] or 'N/A' }}
+                                {% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <h3>No Data Available</h3>
+                <p>No records found in Unity Catalog table.</p>
+                <p style="margin-top: 20px;">
+                    <a href="/ingestion" style="color: #667eea;">Check ingestion status →</a>
+                </p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
