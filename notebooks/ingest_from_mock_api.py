@@ -215,6 +215,19 @@ print(f"✓ Fetched {len(timeseries_data)} timeseries records")
 if timeseries_data:
     timeseries_df = spark.createDataFrame(timeseries_data)
 
+    # Convert timestamp from string to timestamp type
+    # API returns ISO 8601 format: "2025-12-10T12:00:00Z"
+    timeseries_df = timeseries_df.withColumn(
+        "timestamp",
+        col("timestamp").cast("timestamp")
+    )
+
+    # Convert ingestion_timestamp to timestamp type
+    timeseries_df = timeseries_df.withColumn(
+        "ingestion_timestamp",
+        col("ingestion_timestamp").cast("timestamp")
+    )
+
     # Cast quality to string
     timeseries_df = timeseries_df.withColumn("quality", col("quality").cast("string"))
 
