@@ -231,6 +231,9 @@ if timeseries_data:
     # Cast quality to string
     timeseries_df = timeseries_df.withColumn("quality", col("quality").cast("string"))
 
+    # Cast unit to integer (extracted as int from tag name)
+    timeseries_df = timeseries_df.withColumn("unit", col("unit").cast("int"))
+
     display(timeseries_df.limit(10))
 
     record_count = len(timeseries_data)
