@@ -19,6 +19,7 @@ from requests.auth import HTTPBasicAuth
 import logging
 import re
 from urllib.parse import urlparse
+from datetime import datetime, timedelta
 
 # Conditional import for Kerberos (may not be available in all environments)
 try:
@@ -57,8 +58,10 @@ class PIAuthManager:
                     {'type': 'basic', 'username': str, 'password': str}
                 For Kerberos:
                     {'type': 'kerberos'}
-                For OAuth:
+                For OAuth (pre-generated token):
                     {'type': 'oauth', 'oauth_token': str}
+                For OAuth (client credentials - auto refresh):
+                    {'type': 'oauth', 'client_id': str, 'client_secret': str, 'token_url': str, 'scope': str (optional)}
             verify_ssl: Enable SSL certificate verification (default: True)
             require_mutual_auth: Require mutual authentication for Kerberos (default: True)
 
@@ -128,13 +131,27 @@ class PIAuthManager:
                 )
 
         elif self.auth_type == 'oauth':
-            if 'oauth_token' not in config:
-                raise ValueError("OAuth requires 'oauth_token'")
+            # Support two OAuth modes: pre-generated token OR client credentials
+            has_token = 'oauth_token' in config
+            has_client_creds = 'client_id' in config and 'client_secret' in config and 'token_url' in config
 
-            # Validate token format (basic check)
-            token = config['oauth_token']
-            if len(token) < 10:
-                raise ValueError("OAuth token appears invalid (too short)")
+            if not has_token and not has_client_creds:
+                raise ValueError(
+                    "OAuth requires either:\n"
+                    "  1. Pre-generated token: 'oauth_token'\n"
+                    "  2. Client credentials: 'client_id', 'client_secret', 'token_url'"
+                )
+
+            if has_token:
+                # Validate token format (basic check)
+                token = config['oauth_token']
+                if len(token) < 10:
+                    raise ValueError("OAuth token appears invalid (too short)")
+
+            if has_client_creds:
+                # Validate token URL
+                if not self._is_valid_url(config['token_url']):
+                    raise ValueError("Invalid token_url format")
 
     def _setup_auth_handler(self, config: Dict[str, str]):
         """
@@ -149,8 +166,21 @@ class PIAuthManager:
             self._password = config['password']
 
         elif self.auth_type == 'oauth':
-            # Store token for header generation
-            self._oauth_token = config['oauth_token']
+            # Two modes: pre-generated token OR client credentials
+            if 'oauth_token' in config:
+                # Mode 1: Pre-generated token
+                self._oauth_token = config['oauth_token']
+                self._token_expiry = None  # Unknown expiry
+                self._use_client_creds = False
+            else:
+                # Mode 2: Client credentials (auto-refresh)
+                self._client_id = config['client_id']
+                self._client_secret = config['client_secret']
+                self._token_url = config['token_url']
+                self._scope = config.get('scope', '')  # Optional scope
+                self._oauth_token = None  # Will be acquired on first use
+                self._token_expiry = None
+                self._use_client_creds = True
 
         # For Kerberos, no credentials needed (handled by system)
         
@@ -179,6 +209,69 @@ class PIAuthManager:
         else:
             raise ValueError(f"Unsupported auth type: {self.auth_type}")
     
+    def _acquire_oauth_token(self) -> bool:
+        """
+        Acquire OAuth token using client credentials flow
+
+        Returns:
+            True if token acquired successfully, False otherwise
+
+        Security: Client credentials never logged
+        """
+        if not self._use_client_creds:
+            return True  # Using pre-generated token, no acquisition needed
+
+        try:
+            # Build token request
+            data = {
+                'grant_type': 'client_credentials',
+                'client_id': self._client_id,
+                'client_secret': self._client_secret
+            }
+
+            if self._scope:
+                data['scope'] = self._scope
+
+            # Request token
+            response = requests.post(
+                self._token_url,
+                data=data,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                timeout=10,
+                verify=self.verify_ssl
+            )
+            response.raise_for_status()
+
+            token_data = response.json()
+            self._oauth_token = token_data['access_token']
+
+            # Calculate expiry (with 5 minute buffer for safety)
+            expires_in = token_data.get('expires_in', 3600)  # Default 1 hour
+            self._token_expiry = datetime.now() + timedelta(seconds=expires_in - 300)
+
+            self.logger.info("✓ OAuth token acquired successfully")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to acquire OAuth token: {type(e).__name__}")
+            return False
+
+    def _is_token_expired(self) -> bool:
+        """Check if OAuth token is expired or about to expire"""
+        if not self._token_expiry:
+            return False  # Unknown expiry, assume valid
+        return datetime.now() >= self._token_expiry
+
+    def _ensure_valid_token(self):
+        """Ensure we have a valid OAuth token, refresh if needed"""
+        if self.auth_type != 'oauth':
+            return
+
+        if self._use_client_creds and (not self._oauth_token or self._is_token_expired()):
+            self.logger.debug("Token expired or missing, acquiring new token...")
+            if not self._acquire_oauth_token():
+                raise RuntimeError("Failed to acquire OAuth token")
+
     def get_headers(self) -> Dict[str, str]:
         """
         Return auth headers for requests
@@ -188,6 +281,9 @@ class PIAuthManager:
 
         Security: OAuth tokens added securely, never logged
         """
+        # Ensure token is valid (refresh if needed)
+        self._ensure_valid_token()
+
         headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
@@ -315,5 +411,7 @@ class PIAuthManager:
             self._password = None
         if hasattr(self, '_oauth_token'):
             self._oauth_token = None
+        if hasattr(self, '_client_secret'):
+            self._client_secret = None
 
         self.logger.debug("Credentials cleared from memory")
