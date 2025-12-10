@@ -53,16 +53,22 @@ class CheckpointManager:
         if not tag_webids:
             return {}
 
-        # Query checkpoint table
-        df = self.spark.table(self.checkpoint_table) \
-            .filter(col("tag_webid").isin(tag_webids)) \
-            .select("tag_webid", "last_timestamp")
+        watermarks = {}
 
-        # Convert to dict
-        watermarks = {
-            row.tag_webid: row.last_timestamp
-            for row in df.collect()
-        }
+        # Try to query checkpoint table (may not exist on first run)
+        try:
+            df = self.spark.table(self.checkpoint_table) \
+                .filter(col("tag_webid").isin(tag_webids)) \
+                .select("tag_webid", "last_timestamp")
+
+            # Convert to dict
+            watermarks = {
+                row.tag_webid: row.last_timestamp
+                for row in df.collect()
+            }
+        except Exception as e:
+            self.logger.info(f"Checkpoint table not found or empty (first run): {e}")
+            watermarks = {}
 
         # For tags without checkpoint, use default (e.g., 30 days ago)
         default_start = datetime.now() - timedelta(days=30)
