@@ -35,36 +35,49 @@ from datetime import datetime, timedelta
 import json
 
 # Configuration
-# Toggle between local mock server and Databricks App
+# NOTE: Databricks Apps with browser OAuth cannot be called from notebooks
+# Workaround: Test the response without auth to see if app allows anonymous access
 
-# OPTION 1: Local mock server (no authentication needed)
-# MOCK_API_URL = "http://localhost:8001"
-
-# OPTION 2: Databricks App (uses user authentication)
 MOCK_API_URL = "https://osipi-webserver-1444828305810485.aws.databricksapps.com"
 
 UC_CATALOG = "osipi"
 UC_SCHEMA = "bronze"
 
-# Authentication: If calling Databricks App, use WorkspaceClient for proper auth
-# If calling localhost, no auth needed
+# Try multiple authentication strategies
 headers = {}
-if "databricksapps.com" in MOCK_API_URL:
-    try:
-        from databricks.sdk import WorkspaceClient
 
-        # Initialize WorkspaceClient (automatically uses notebook context)
-        wc = WorkspaceClient()
+print("Testing connectivity to Databricks App...")
+print(f"URL: {MOCK_API_URL}")
 
-        # Get authentication headers for Databricks Apps
-        headers = wc.config.authenticate()
+# Test 1: Try workspace client auth
+try:
+    from databricks.sdk import WorkspaceClient
+    wc = WorkspaceClient()
+    headers = wc.config.authenticate()
+    print("✓ Got headers from WorkspaceClient")
+    print(f"  Headers: {list(headers.keys())}")
+except Exception as e:
+    print(f"⚠️  WorkspaceClient auth failed: {e}")
 
-        print("✓ Using user authentication for Databricks App")
-    except Exception as e:
-        print(f"⚠️  Failed to get auth token: {e}")
-        print("   Trying without authentication...")
-else:
-    print("✓ Using localhost - no authentication needed")
+# Test 2: Try to access without auth (in case app is public)
+import requests
+test_response = requests.get(f"{MOCK_API_URL}/health", timeout=10, allow_redirects=False)
+print(f"\nTest /health endpoint:")
+print(f"  Status: {test_response.status_code}")
+print(f"  Content-Type: {test_response.headers.get('content-type', 'unknown')}")
+
+if test_response.status_code == 200 and 'json' in test_response.headers.get('content-type', ''):
+    print("✓ App is accessible without authentication!")
+    headers = {}  # No auth needed
+elif test_response.status_code in [302, 401]:
+    print("✗ App requires authentication")
+    print("\n⚠️  PROBLEM: Regular Databricks notebooks cannot authenticate to Databricks Apps")
+    print("   Databricks Apps use browser-based OAuth which doesn't work from notebook API calls")
+    print("\n   WORKAROUND OPTIONS:")
+    print("   1. Make specific API endpoints public (modify app code)")
+    print("   2. Use ngrok to tunnel local mock server to Databricks")
+    print("   3. Deploy mock server as a Databricks job that writes directly to tables")
+    raise Exception(f"Cannot authenticate to Databricks App (status {test_response.status_code})")
 
 # API endpoints
 DATASERVERS_ENDPOINT = f"{MOCK_API_URL}/piwebapi/dataservers"

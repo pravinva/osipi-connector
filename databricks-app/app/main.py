@@ -40,6 +40,14 @@ UC_CATALOG = os.getenv("UC_CATALOG", "osipi")
 UC_SCHEMA = os.getenv("UC_SCHEMA", "bronze")
 WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID", "")
 
+# API Access Configuration
+# Set ALLOW_UNAUTHENTICATED_API=true to allow notebooks to call PI Web API endpoints
+ALLOW_UNAUTHENTICATED_API = os.getenv("ALLOW_UNAUTHENTICATED_API", "false").lower() == "true"
+
+if ALLOW_UNAUTHENTICATED_API:
+    print("⚠️  ALLOW_UNAUTHENTICATED_API=true: PI Web API endpoints are publicly accessible")
+    print("   This allows notebooks to ingest data without authentication")
+
 # Initialize Databricks client
 try:
     w = WorkspaceClient()
