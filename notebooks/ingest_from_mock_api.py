@@ -379,14 +379,18 @@ for db in databases:
             raw_attrs = ef.get("Attributes", {})
             attrs_map = {k: str(v) if v is not None else "" for k, v in raw_attrs.items()} if raw_attrs else {}
 
+            # Extract category names as array
+            category_names = ef.get("CategoryNames", []) if ef.get("CategoryNames") else []
+
             event_frames_data.append({
                 "webid": ef["WebId"],
                 "name": ef["Name"],
                 "template_name": ef.get("TemplateName", ""),
                 "start_time": ef["StartTime"],
                 "end_time": ef.get("EndTime"),
-                "primary_element_webid": ef.get("PrimaryReferencedElementWebId"),
+                "primary_referenced_element_webid": ef.get("PrimaryReferencedElementWebId"),
                 "description": ef.get("Description", ""),
+                "category_names": category_names,
                 "attributes": attrs_map,  # Store as MAP<STRING, STRING>
                 "ingestion_timestamp": datetime.utcnow()
             })
@@ -404,6 +408,20 @@ if event_frames_data:
     ef_df = ef_df.withColumn("start_time", col("start_time").cast("timestamp"))
     ef_df = ef_df.withColumn("end_time", col("end_time").cast("timestamp"))
     ef_df = ef_df.withColumn("ingestion_timestamp", col("ingestion_timestamp").cast("timestamp"))
+
+    # Reorder columns to match table schema exactly (excluding generated 'partition_date' column)
+    ef_df = ef_df.select(
+        "webid",
+        "name",
+        "template_name",
+        "start_time",
+        "end_time",
+        "primary_referenced_element_webid",
+        "description",
+        "category_names",
+        "attributes",
+        "ingestion_timestamp"
+    )
 
     display(ef_df.limit(10))
 
