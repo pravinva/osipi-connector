@@ -7,6 +7,15 @@
 
 # COMMAND ----------
 
+# MAGIC %pip install pyyaml
+
+# COMMAND ----------
+
+# Restart Python to pick up new packages
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Configuration
 
