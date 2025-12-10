@@ -27,28 +27,67 @@ target_catalog = spark.conf.get('pi.target.catalog')
 target_schema = spark.conf.get('pi.target.schema')
 start_time_offset_days = int(spark.conf.get('pi.start_time_offset_days', '30'))
 
-# Get auth credentials from Databricks secrets
-# Assumes secrets are stored in scope matching connection name
+# Detect authentication type based on connection name
+# For mock_pi_connection (Databricks App), use OAuth M2M
+# For real PI servers, use basic auth from connection-specific scope
 auth_type = spark.conf.get('pi.auth.type', 'basic')
-username = dbutils.secrets.get(scope=connection_name, key='username')
-password = dbutils.secrets.get(scope=connection_name, key='password')
+
+if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_url:
+    # Use OAuth M2M for Databricks App (mock API)
+    from databricks.sdk import WorkspaceClient
+    import requests
+
+    # Get service principal credentials from sp-osipi scope
+    CLIENT_ID = dbutils.secrets.get(scope="sp-osipi", key="sp-client-id")
+    CLIENT_SECRET = dbutils.secrets.get(scope="sp-osipi", key="sp-client-secret")
+
+    # Get workspace URL for token endpoint
+    workspace_url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
+
+    # Initialize WorkspaceClient with service principal
+    wc = WorkspaceClient(
+        host=workspace_url,
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET
+    )
+
+    # Get OAuth headers
+    auth_headers = wc.config.authenticate()
+
+    config = {
+        'pi_web_api_url': pi_server_url,
+        'auth': {
+            'type': 'oauth',
+            'headers': auth_headers  # Pass headers directly
+        },
+        'catalog': target_catalog,
+        'schema': target_schema,
+        'tags': tags,
+        'start_time': datetime.now() - timedelta(days=start_time_offset_days),
+        'end_time': datetime.now()
+    }
+else:
+    # Use basic auth for real PI servers
+    username = dbutils.secrets.get(scope=connection_name, key='username')
+    password = dbutils.secrets.get(scope=connection_name, key='password')
+
+    config = {
+        'pi_web_api_url': pi_server_url,
+        'auth': {
+            'type': auth_type,
+            'username': username,
+            'password': password
+        },
+        'catalog': target_catalog,
+        'schema': target_schema,
+        'tags': tags,
+        'start_time': datetime.now() - timedelta(days=start_time_offset_days),
+        'end_time': datetime.now()
+    }
 
 # COMMAND ----------
-# Configure PI connector
-
-config = {
-    'pi_web_api_url': pi_server_url,
-    'auth': {
-        'type': auth_type,
-        'username': username,
-        'password': password
-    },
-    'catalog': target_catalog,
-    'schema': target_schema,
-    'tags': tags,
-    'start_time': datetime.now() - timedelta(days=start_time_offset_days),
-    'end_time': datetime.now()
-}
+# Note: PILakeflowConnector needs to be updated to handle OAuth headers
+# if auth type is 'oauth', use the provided headers instead of basic auth
 
 # COMMAND ----------
 # Define DLT table for PI time-series data

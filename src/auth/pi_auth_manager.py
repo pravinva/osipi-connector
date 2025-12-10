@@ -131,15 +131,17 @@ class PIAuthManager:
                 )
 
         elif self.auth_type == 'oauth':
-            # Support two OAuth modes: pre-generated token OR client credentials
+            # Support three OAuth modes: pre-generated token OR client credentials OR pre-configured headers
             has_token = 'oauth_token' in config
             has_client_creds = 'client_id' in config and 'client_secret' in config and 'token_url' in config
+            has_headers = 'headers' in config
 
-            if not has_token and not has_client_creds:
+            if not has_token and not has_client_creds and not has_headers:
                 raise ValueError(
                     "OAuth requires either:\n"
                     "  1. Pre-generated token: 'oauth_token'\n"
-                    "  2. Client credentials: 'client_id', 'client_secret', 'token_url'"
+                    "  2. Client credentials: 'client_id', 'client_secret', 'token_url'\n"
+                    "  3. Pre-configured headers: 'headers' (from WorkspaceClient)"
                 )
 
             if has_token:
@@ -152,6 +154,8 @@ class PIAuthManager:
                 # Validate token URL
                 if not self._is_valid_url(config['token_url']):
                     raise ValueError("Invalid token_url format")
+
+            # Headers mode requires no validation (already authenticated)
 
     def _setup_auth_handler(self, config: Dict[str, str]):
         """
@@ -166,14 +170,21 @@ class PIAuthManager:
             self._password = config['password']
 
         elif self.auth_type == 'oauth':
-            # Two modes: pre-generated token OR client credentials
-            if 'oauth_token' in config:
-                # Mode 1: Pre-generated token
+            # Three modes: pre-generated token OR client credentials OR pre-configured headers
+            if 'headers' in config:
+                # Mode 1: Pre-configured headers (from WorkspaceClient)
+                self._custom_headers = config['headers']
+                self._oauth_token = None
+                self._use_client_creds = False
+                self._use_custom_headers = True
+            elif 'oauth_token' in config:
+                # Mode 2: Pre-generated token
                 self._oauth_token = config['oauth_token']
                 self._token_expiry = None  # Unknown expiry
                 self._use_client_creds = False
+                self._use_custom_headers = False
             else:
-                # Mode 2: Client credentials (auto-refresh)
+                # Mode 3: Client credentials (auto-refresh)
                 self._client_id = config['client_id']
                 self._client_secret = config['client_secret']
                 self._token_url = config['token_url']
@@ -181,6 +192,7 @@ class PIAuthManager:
                 self._oauth_token = None  # Will be acquired on first use
                 self._token_expiry = None
                 self._use_client_creds = True
+                self._use_custom_headers = False
 
         # For Kerberos, no credentials needed (handled by system)
         
@@ -281,6 +293,17 @@ class PIAuthManager:
 
         Security: OAuth tokens added securely, never logged
         """
+        # If using custom headers (from WorkspaceClient), return them directly
+        if self.auth_type == 'oauth' and hasattr(self, '_use_custom_headers') and self._use_custom_headers:
+            # Merge custom headers with base headers
+            headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'User-Agent': 'PI-Lakeflow-Connector/1.0'
+            }
+            headers.update(self._custom_headers)
+            return headers
+
         # Ensure token is valid (refresh if needed)
         self._ensure_valid_token()
 
