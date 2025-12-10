@@ -32,12 +32,23 @@ TARGET_CATALOG = "osipi"
 TARGET_SCHEMA = "bronze"
 CONNECTION_NAME = "mock_pi_connection"  # Will use mock API, no real auth needed
 
+# Ingestion Mode (CONFIGURABLE)
+# - "streaming": Continuous ingestion using DLT continuous mode (real-time, auto-scaling)
+# - "batch": Scheduled batch ingestion (triggered mode, cost-optimized)
+INGESTION_MODE = "batch"  # Options: "streaming" or "batch"
+
 # Load Balancing Strategy (CONFIGURABLE)
 MAX_TAGS_TO_FETCH = None  # Set to None for all tags, or limit (e.g., 1000 for testing)
 TAGS_PER_PIPELINE = 100   # Number of tags per pipeline (adjust based on your needs)
+
+# Batch Mode Schedules (only used when INGESTION_MODE = "batch")
 SCHEDULE_15MIN = "0 */15 * * * ?"  # Every 15 minutes (Quartz cron)
 SCHEDULE_30MIN = "0 */30 * * * ?"  # Every 30 minutes
 SCHEDULE_HOURLY = "0 0 * * * ?"    # Every hour
+DEFAULT_BATCH_SCHEDULE = SCHEDULE_30MIN  # Default for batch pipelines
+
+# Cluster Configuration
+# All pipelines use serverless compute (no need to configure workers/autoscaling)
 
 # DAB Deployment (CONFIGURABLE)
 AUTO_DEPLOY_DAB = True     # Set to True to automatically deploy after generation
@@ -219,8 +230,8 @@ os.makedirs(OUTPUT_YAML_DIR.replace('/Workspace', '/dbfs/Workspace'), exist_ok=T
 import yaml
 from collections import defaultdict
 
-def create_pipelines_yaml(df, project_name):
-    """Generate DLT pipelines YAML."""
+def create_pipelines_yaml(df, project_name, ingestion_mode="batch"):
+    """Generate DLT pipelines YAML with support for streaming and batch modes."""
     pipelines = {}
 
     for pipeline_group in sorted(df['pipeline_group'].unique()):
@@ -230,17 +241,13 @@ def create_pipelines_yaml(df, project_name):
         first_row = group_df.iloc[0]
         tags = group_df['tag_webid'].tolist()
 
-        pipelines[pipeline_name] = {
+        # Base pipeline configuration
+        pipeline_config = {
             'name': f"{project_name}_ingestion_group_{pipeline_group}",
             'catalog': first_row['target_catalog'],
             'target': first_row['target_schema'],
-            'clusters': [{
-                'label': 'default',
-                'node_type_id': 'i3.xlarge',
-                'num_workers': 2
-            }],
             'libraries': [
-                {'notebook': {'path': '../src/notebooks/pi_ingestion_pipeline.py'}}
+                {'notebook': {'path': '../../src/notebooks/pi_ingestion_pipeline.py'}}
             ],
             'configuration': {
                 'pi.tags': ','.join(tags),
@@ -251,6 +258,20 @@ def create_pipelines_yaml(df, project_name):
                 'pi.start_time_offset_days': str(first_row['start_time_offset_days'])
             }
         }
+
+        # Add mode-specific configuration
+        if ingestion_mode == "streaming":
+            # Streaming: continuous mode with serverless
+            pipeline_config['continuous'] = True
+            pipeline_config['channel'] = 'CURRENT'  # Use CURRENT for streaming
+            pipeline_config['serverless'] = True
+        else:
+            # Batch: triggered mode with serverless
+            pipeline_config['continuous'] = False
+            pipeline_config['channel'] = None  # No channel for batch (triggered)
+            pipeline_config['serverless'] = True
+
+        pipelines[pipeline_name] = pipeline_config
 
     return {'resources': {'pipelines': pipelines}}
 
@@ -283,8 +304,19 @@ def create_jobs_yaml(df, project_name):
     return {'resources': {'jobs': jobs}}
 
 # Generate YAMLs
-pipelines_yaml = create_pipelines_yaml(config_df, PROJECT_NAME)
-jobs_yaml = create_jobs_yaml(config_df, PROJECT_NAME)
+print(f"\n{'='*80}")
+print(f"Generating pipeline YAMLs in {INGESTION_MODE.upper()} mode")
+print(f"{'='*80}\n")
+
+pipelines_yaml = create_pipelines_yaml(config_df, PROJECT_NAME, INGESTION_MODE)
+
+# Only generate jobs for batch mode (streaming runs continuously)
+if INGESTION_MODE == "batch":
+    jobs_yaml = create_jobs_yaml(config_df, PROJECT_NAME)
+    print(f"✓ Generated {len(jobs_yaml['resources']['jobs'])} scheduled jobs (batch mode)")
+else:
+    jobs_yaml = {'resources': {'jobs': {}}}
+    print(f"✓ Skipping job generation (streaming mode - pipelines run continuously)")
 
 # Write files
 pipelines_file = f"{OUTPUT_YAML_DIR}/pipelines.yml"
