@@ -32,6 +32,11 @@ TARGET_CATALOG = "osipi"
 TARGET_SCHEMA = "bronze"
 CONNECTION_NAME = "mock_pi_connection"  # Will use mock API, no real auth needed
 
+# Notebook path - MUST be absolute Workspace path
+# For Repos: /Workspace/Repos/<username>/<repo-name>/src/notebooks/pi_ingestion_pipeline.py
+# For Users: /Workspace/Users/<email>/osipi-connector/src/notebooks/pi_ingestion_pipeline.py
+PIPELINE_NOTEBOOK_PATH = "/Workspace/Repos/production/osipi-connector/src/notebooks/pi_ingestion_pipeline.py"
+
 # Ingestion Mode (CONFIGURABLE)
 # - "streaming": Continuous ingestion using DLT continuous mode (real-time, auto-scaling)
 # - "batch": Scheduled batch ingestion (triggered mode, cost-optimized)
@@ -283,7 +288,7 @@ except:
 import yaml
 from collections import defaultdict
 
-def create_pipelines_yaml(df, project_name, ingestion_mode="batch"):
+def create_pipelines_yaml(df, project_name, notebook_path, ingestion_mode="batch"):
     """Generate DLT pipelines YAML with support for streaming and batch modes."""
     pipelines = {}
 
@@ -300,7 +305,7 @@ def create_pipelines_yaml(df, project_name, ingestion_mode="batch"):
             'catalog': first_row['target_catalog'],
             'target': first_row['target_schema'],
             'libraries': [
-                {'notebook': {'path': '../../src/notebooks/pi_ingestion_pipeline.py'}}
+                {'notebook': {'path': notebook_path}}
             ],
             'configuration': {
                 'pi.tags': ','.join(tags),
@@ -361,7 +366,7 @@ print(f"\n{'='*80}")
 print(f"Generating pipeline YAMLs in {INGESTION_MODE.upper()} mode")
 print(f"{'='*80}\n")
 
-pipelines_yaml = create_pipelines_yaml(config_df, PROJECT_NAME, INGESTION_MODE)
+pipelines_yaml = create_pipelines_yaml(config_df, PROJECT_NAME, PIPELINE_NOTEBOOK_PATH, INGESTION_MODE)
 
 # Only generate jobs for batch mode (streaming runs continuously)
 if INGESTION_MODE == "batch":
