@@ -46,17 +46,23 @@ MOCK_API_URL = "https://osipi-webserver-1444828305810485.aws.databricksapps.com"
 UC_CATALOG = "osipi"
 UC_SCHEMA = "bronze"
 
-# Authentication: If calling Databricks App, use current user's token
+# Authentication: If calling Databricks App, use WorkspaceClient for proper auth
 # If calling localhost, no auth needed
 headers = {}
 if "databricksapps.com" in MOCK_API_URL:
     try:
-        # Get current user's workspace token
-        token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
-        headers = {"Authorization": f"Bearer {token}"}
+        from databricks.sdk import WorkspaceClient
+
+        # Initialize WorkspaceClient (automatically uses notebook context)
+        wc = WorkspaceClient()
+
+        # Get authentication headers for Databricks Apps
+        headers = wc.config.authenticate()
+
         print("✓ Using user authentication for Databricks App")
-    except:
-        print("⚠️  Failed to get auth token - will try without authentication")
+    except Exception as e:
+        print(f"⚠️  Failed to get auth token: {e}")
+        print("   Trying without authentication...")
 else:
     print("✓ Using localhost - no authentication needed")
 
