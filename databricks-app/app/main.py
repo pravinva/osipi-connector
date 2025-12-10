@@ -12,14 +12,18 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse
 from datetime import datetime, timedelta
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import random
+import os
 
 # Import the existing mock PI server app
 import sys
-import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tests.mock_pi_server import app as pi_app
+
+# Databricks SDK for querying Unity Catalog tables
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.errors import DatabricksError
 
 # Use the existing PI app and add UI routes
 app = pi_app
@@ -29,6 +33,48 @@ app.description = "Mock PI Web API Server with Lakehouse Integration Dashboard"
 # Mount static files and templates
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+
+# Databricks configuration
+UC_CATALOG = os.getenv("UC_CATALOG", "osipi")
+UC_SCHEMA = os.getenv("UC_SCHEMA", "bronze")
+WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID", "")
+
+# Initialize Databricks client
+try:
+    w = WorkspaceClient()
+    print(f"✓ Connected to Databricks workspace")
+except Exception as e:
+    print(f"⚠️  Failed to connect to Databricks: {e}")
+    w = None
+
+
+def execute_sql(query: str) -> List[Dict]:
+    """Execute SQL query and return results as list of dicts."""
+    if not w or not WAREHOUSE_ID:
+        return []
+
+    try:
+        response = w.statement_execution.execute_statement(
+            statement=query,
+            warehouse_id=WAREHOUSE_ID,
+            catalog=UC_CATALOG,
+            schema=UC_SCHEMA,
+            wait_timeout="30s"
+        )
+
+        if not response.result or not response.result.data_array:
+            return []
+
+        # Convert to list of dicts
+        columns = [col.name for col in response.manifest.schema.columns]
+        results = []
+        for row in response.result.data_array:
+            results.append(dict(zip(columns, row)))
+        return results
+
+    except Exception as e:
+        print(f"SQL execution error: {e}")
+        return []
 
 
 # ============================================================================
@@ -67,136 +113,196 @@ async def ingestion_dashboard(request: Request):
 
 @app.get("/api/ingestion/status")
 async def get_ingestion_status() -> Dict[str, Any]:
-    """
-    Get current ingestion status and KPIs.
+    """Get current ingestion status and KPIs from osipi.bronze tables."""
 
-    In production, this would query Delta tables:
-    - SELECT COUNT(*) FROM main.bronze.pi_timeseries WHERE date = current_date()
-    - SELECT COUNT(DISTINCT tag_webid) FROM main.bronze.pi_timeseries
-    - SELECT MAX(ingestion_timestamp) FROM checkpoints.pi_watermarks
-    """
-    # Mock data for demo
-    now = datetime.utcnow()
-    last_run = now - timedelta(minutes=random.randint(5, 30))
+    # Query actual data from Unity Catalog
+    timeseries_stats = execute_sql(f"""
+        SELECT
+            COUNT(*) as total_rows_today,
+            COUNT(DISTINCT tag_webid) as tags_ingested,
+            MAX(ingestion_timestamp) as last_run
+        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries
+        WHERE DATE(ingestion_timestamp) = CURRENT_DATE()
+    """)
+
+    event_frames_count = execute_sql(f"""
+        SELECT COUNT(*) as count
+        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_event_frames
+        WHERE DATE(start_time) = CURRENT_DATE()
+    """)
+
+    af_elements_count = execute_sql(f"""
+        SELECT COUNT(DISTINCT webid) as count
+        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_af_hierarchy
+    """)
+
+    # Extract values with fallback to 0
+    stats = timeseries_stats[0] if timeseries_stats else {}
+    total_rows = int(stats.get('total_rows_today', 0))
+    tags = int(stats.get('tags_ingested', 0))
+    last_run = stats.get('last_run') if stats.get('last_run') else datetime.utcnow().isoformat() + "Z"
+
+    event_frames = int(event_frames_count[0].get('count', 0)) if event_frames_count else 0
+    af_elements = int(af_elements_count[0].get('count', 0)) if af_elements_count else 0
 
     return {
-        "status": "Healthy",
-        "last_run": last_run.isoformat() + "Z",
-        "next_run": (now + timedelta(minutes=15)).isoformat() + "Z",
-        "rows_loaded_last_hour": random.randint(100000, 500000),
-        "total_rows_today": random.randint(2000000, 5000000),
-        "tags_ingested": 3200,
-        "event_frames_ingested": 48,
-        "af_elements_indexed": 524,
-        "data_quality_score": random.randint(95, 100),
-        "avg_latency_seconds": round(random.uniform(8.0, 12.0), 2),
-        "pipeline_groups": 3,
-        "active_pipelines": 2
+        "status": "Healthy" if total_rows > 0 else "No Data",
+        "last_run": last_run,
+        "next_run": (datetime.utcnow() + timedelta(minutes=15)).isoformat() + "Z",
+        "rows_loaded_last_hour": total_rows,  # Simplified: showing today's data
+        "total_rows_today": total_rows,
+        "tags_ingested": tags,
+        "event_frames_ingested": event_frames,
+        "af_elements_indexed": af_elements,
+        "data_quality_score": 100 if total_rows > 0 else 0,
+        "avg_latency_seconds": 0.0,
+        "pipeline_groups": 1,
+        "active_pipelines": 1 if total_rows > 0 else 0
     }
 
 
 @app.get("/api/ingestion/timeseries")
 async def get_ingestion_timeseries() -> Dict[str, List]:
-    """
-    Get time-series metrics for charts.
+    """Get time-series metrics for charts from osipi.bronze tables."""
 
-    In production:
-    SELECT
-        date_trunc('minute', ingestion_timestamp) as ts,
-        COUNT(*) as row_count
-    FROM main.bronze.pi_timeseries
-    WHERE ingestion_timestamp >= current_timestamp - INTERVAL 1 HOUR
-    GROUP BY ts
-    ORDER BY ts
-    """
-    # Generate mock data for last 60 minutes
-    now = datetime.utcnow()
+    # Query actual ingestion rate over last hour
+    results = execute_sql(f"""
+        SELECT
+            DATE_TRUNC('minute', ingestion_timestamp) as ts,
+            COUNT(*) as row_count
+        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries
+        WHERE ingestion_timestamp >= CURRENT_TIMESTAMP() - INTERVAL 1 HOUR
+        GROUP BY DATE_TRUNC('minute', ingestion_timestamp)
+        ORDER BY ts
+    """)
+
     timestamps = []
     rows_per_minute = []
-    errors_per_minute = []
 
-    for i in range(60, 0, -1):
-        ts = now - timedelta(minutes=i)
-        timestamps.append(ts.strftime("%H:%M"))
-        rows_per_minute.append(random.randint(2000, 5000))
-        errors_per_minute.append(random.randint(0, 5))
+    if results:
+        for row in results:
+            ts = row.get('ts')
+            if ts:
+                timestamps.append(ts.strftime("%H:%M") if hasattr(ts, 'strftime') else str(ts)[-5:])
+                rows_per_minute.append(int(row.get('row_count', 0)))
+    else:
+        # No data yet - return empty arrays
+        pass
 
     return {
         "timestamps": timestamps,
         "rows_per_minute": rows_per_minute,
-        "errors_per_minute": errors_per_minute
+        "errors_per_minute": [0] * len(timestamps)  # Error tracking not implemented yet
     }
 
 
 @app.get("/api/ingestion/tags")
 async def get_tags_by_plant() -> Dict[str, List]:
-    """
-    Get tag distribution by plant/site.
+    """Get tag distribution by plant/site from osipi.bronze tables."""
 
-    In production:
-    SELECT
-        SPLIT(element_path, '/')[1] as plant,
-        COUNT(DISTINCT tag_webid) as tag_count
-    FROM main.bronze.pi_asset_hierarchy
-    GROUP BY plant
-    """
+    results = execute_sql(f"""
+        SELECT
+            plant,
+            COUNT(DISTINCT webid) as tag_count
+        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_af_hierarchy
+        WHERE plant IS NOT NULL
+        GROUP BY plant
+        ORDER BY tag_count DESC
+        LIMIT 10
+    """)
+
+    plants = []
+    tag_counts = []
+    colors = ["#FF3621", "#00A8E1", "#1B3139", "#44AF69", "#F7B32B", "#9F5F80", "#2E8BC0", "#4CAF50"]
+
+    for row in results:
+        plants.append(row.get('plant', 'Unknown'))
+        tag_counts.append(int(row.get('tag_count', 0)))
+
     return {
-        "plants": ["Plant 1", "Plant 2", "Plant 3", "Plant 4"],
-        "tag_counts": [850, 920, 780, 650],
-        "colors": ["#FF3621", "#00A8E1", "#1B3139", "#44AF69"]
+        "plants": plants,
+        "tag_counts": tag_counts,
+        "colors": colors[:len(plants)]
     }
 
 
 @app.get("/api/ingestion/pipeline_health")
 async def get_pipeline_health() -> List[Dict[str, Any]]:
-    """
-    Get health status of each pipeline group.
+    """Get health status of ingestion pipeline from osipi.bronze tables."""
 
-    In production:
-    - Query job run history from Databricks Jobs API
-    - Check last run status, duration, record counts
-    """
-    return [
-        {
+    # Check last ingestion time and row count
+    result = execute_sql(f"""
+        SELECT
+            MAX(ingestion_timestamp) as last_run,
+            COUNT(*) as row_count,
+            COUNT(DISTINCT tag_webid) as tag_count
+        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries
+    """)
+
+    if result and result[0]:
+        stats = result[0]
+        last_run = stats.get('last_run')
+        row_count = int(stats.get('row_count', 0))
+        tag_count = int(stats.get('tag_count', 0))
+
+        return [{
             "pipeline_id": 1,
-            "name": "High-Frequency Tags (15 min)",
-            "status": "Running",
-            "last_run": (datetime.utcnow() - timedelta(minutes=5)).isoformat() + "Z",
-            "tags": 1000,
-            "avg_duration_seconds": 8.3,
-            "success_rate": 99.8
-        },
-        {
-            "pipeline_id": 2,
-            "name": "Standard Tags (30 min)",
-            "status": "Idle",
-            "last_run": (datetime.utcnow() - timedelta(minutes=18)).isoformat() + "Z",
-            "tags": 1500,
-            "avg_duration_seconds": 12.1,
-            "success_rate": 99.5
-        },
-        {
-            "pipeline_id": 3,
-            "name": "Historical Tags (1 hour)",
-            "status": "Idle",
-            "last_run": (datetime.utcnow() - timedelta(minutes=45)).isoformat() + "Z",
-            "tags": 700,
-            "avg_duration_seconds": 6.7,
-            "success_rate": 100.0
-        }
-    ]
+            "name": "PI Timeseries Ingestion",
+            "status": "Healthy" if row_count > 0 else "No Data",
+            "last_run": last_run if last_run else datetime.utcnow().isoformat() + "Z",
+            "tags": tag_count,
+            "avg_duration_seconds": 0.0,
+            "success_rate": 100.0 if row_count > 0 else 0.0
+        }]
+
+    return []
 
 
 @app.get("/api/ingestion/recent_events")
 async def get_recent_events() -> List[Dict[str, Any]]:
-    """Get recent ingestion events/logs."""
-    events = [
-        {"time": "2 min ago", "type": "success", "message": "Pipeline 1 completed: 125,430 records ingested"},
-        {"time": "8 min ago", "type": "info", "message": "Pipeline 2 started"},
-        {"time": "15 min ago", "type": "success", "message": "Event frames processed: 12 batch runs"},
-        {"time": "22 min ago", "type": "warning", "message": "Tag F1DP-TAG-042: Quality flag questionable"},
-        {"time": "28 min ago", "type": "success", "message": "AF hierarchy refreshed: 524 elements"}
-    ]
+    """Get recent ingestion events from osipi.bronze tables."""
+
+    # Query recent ingestion activity
+    results = execute_sql(f"""
+        SELECT
+            ingestion_timestamp,
+            COUNT(*) as record_count
+        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries
+        WHERE ingestion_timestamp >= CURRENT_TIMESTAMP() - INTERVAL 1 HOUR
+        GROUP BY ingestion_timestamp
+        ORDER BY ingestion_timestamp DESC
+        LIMIT 5
+    """)
+
+    events = []
+    now = datetime.utcnow()
+
+    for row in results:
+        ts = row.get('ingestion_timestamp')
+        count = int(row.get('record_count', 0))
+
+        # Calculate time ago
+        if ts:
+            if hasattr(ts, 'timestamp'):
+                delta = now - ts
+                minutes_ago = int(delta.total_seconds() / 60)
+                time_str = f"{minutes_ago} min ago" if minutes_ago > 0 else "just now"
+            else:
+                time_str = "recently"
+
+            events.append({
+                "time": time_str,
+                "type": "success",
+                "message": f"Ingested {count:,} records"
+            })
+
+    if not events:
+        events.append({
+            "time": "N/A",
+            "type": "info",
+            "message": "No recent ingestion activity. Waiting for connector job to run."
+        })
+
     return events
 
 
