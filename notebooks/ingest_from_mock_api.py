@@ -39,12 +39,30 @@ MOCK_API_URL = "https://osipi-webserver-1444828305810485.aws.databricksapps.com"
 UC_CATALOG = "osipi"
 UC_SCHEMA = "bronze"
 
+# Get OAuth token for Databricks App authentication
+from databricks.sdk import WorkspaceClient
+w = WorkspaceClient()
+
+# Get current user's token
+try:
+    # Try to get OAuth token
+    import os
+    token = os.environ.get("DATABRICKS_TOKEN") or dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+    print("✓ Using Databricks authentication token")
+except:
+    token = None
+    print("⚠️  No authentication token available - API calls may fail")
+
+# Set up headers for authenticated requests
+headers = {"Authorization": f"Bearer {token}"} if token else {}
+
 # API endpoints
 DATASERVERS_ENDPOINT = f"{MOCK_API_URL}/piwebapi/dataservers"
 ASSETDATABASES_ENDPOINT = f"{MOCK_API_URL}/piwebapi/assetdatabases"
 
 print(f"Mock API URL: {MOCK_API_URL}")
 print(f"Target: {UC_CATALOG}.{UC_SCHEMA}")
+print(f"Auth headers: {'✓ Present' if headers else '✗ Missing'}")
 
 # COMMAND ----------
 
@@ -54,7 +72,7 @@ print(f"Target: {UC_CATALOG}.{UC_SCHEMA}")
 # COMMAND ----------
 
 # Get data server
-response = requests.get(DATASERVERS_ENDPOINT)
+response = requests.get(DATASERVERS_ENDPOINT, headers=headers)
 dataservers = response.json()["Items"]
 server_webid = dataservers[0]["WebId"]
 
@@ -62,7 +80,7 @@ print(f"Data Server: {server_webid}")
 
 # Get all PI points
 points_url = f"{MOCK_API_URL}/piwebapi/dataservers/{server_webid}/points?maxCount=10000"
-response = requests.get(points_url)
+response = requests.get(points_url, headers=headers)
 points = response.json()["Items"]
 
 print(f"Found {len(points)} PI points")
@@ -149,7 +167,7 @@ for i, point in enumerate(sample_points):
         # Get recorded values
         recorded_url = f"{MOCK_API_URL}/piwebapi/streams/{webid}/recorded"
         params = {"startTime": start_time_str, "endTime": end_time_str, "maxCount": 1000}
-        response = requests.get(recorded_url, params=params)
+        response = requests.get(recorded_url, params=params, headers=headers)
 
         if response.status_code == 200:
             data = response.json()
@@ -216,7 +234,7 @@ else:
 # COMMAND ----------
 
 # Get asset databases
-response = requests.get(ASSETDATABASES_ENDPOINT)
+response = requests.get(ASSETDATABASES_ENDPOINT, headers=headers)
 databases = response.json()["Items"]
 
 print(f"Found {len(databases)} asset databases")
@@ -229,7 +247,7 @@ for db in databases:
 
     # Get root elements
     elements_url = f"{MOCK_API_URL}/piwebapi/assetdatabases/{db_webid}/elements"
-    response = requests.get(elements_url)
+    response = requests.get(elements_url, headers=headers)
     elements = response.json().get("Items", [])
 
     print(f"Database {db_name}: {len(elements)} root elements")
@@ -298,7 +316,7 @@ for db in databases:
     # Get event frames
     ef_url = f"{MOCK_API_URL}/piwebapi/assetdatabases/{db_webid}/eventframes"
     params = {"startTime": start_time_str, "endTime": end_time_str}
-    response = requests.get(ef_url, params=params)
+    response = requests.get(ef_url, params=params, headers=headers)
 
     if response.status_code == 200:
         event_frames = response.json().get("Items", [])
