@@ -16,6 +16,8 @@ env:
     value: "bronze"
   - name: MOCK_PI_TAG_COUNT
     value: "1040"
+  - name: ALLOW_UNAUTHENTICATED_API
+    value: "true"  # Allows notebooks and DLT pipelines to call PI Web API endpoints
 
 # Optional: Specify resources
 resources:

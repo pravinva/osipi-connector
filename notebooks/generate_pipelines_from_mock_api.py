@@ -74,13 +74,48 @@ print(f"Output CSV: {OUTPUT_CSV}")
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## Authentication Setup
+
+# COMMAND ----------
+
+# Get OAuth token using Service Principal for Databricks App access
+print("Authenticating to Databricks App...")
+print(f"URL: {MOCK_API_URL}")
+
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
+
+# Get service principal credentials from secrets
+CLIENT_ID = dbutils.secrets.get(scope="sp-osipi", key="sp-client-id")
+CLIENT_SECRET = dbutils.secrets.get(scope="sp-osipi", key="sp-client-secret")
+
+# Get workspace URL for token endpoint
+workspace_url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
+
+# Initialize WorkspaceClient with service principal
+wc = WorkspaceClient(
+    host=workspace_url,
+    client_id=CLIENT_ID,
+    client_secret=CLIENT_SECRET
+)
+
+# Get OAuth headers - this returns proper Authorization header for Databricks Apps
+headers = wc.config.authenticate()
+
+print(f"✓ Authentication configured")
+print(f"  Using: Service Principal OAuth (M2M)")
+print(f"  Client ID: {CLIENT_ID[:8]}...")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## 1. Discover Tags from Mock API
 
 # COMMAND ----------
 
 # Get data server
 print("Fetching data server info...")
-response = requests.get(DATASERVERS_ENDPOINT)
+response = requests.get(DATASERVERS_ENDPOINT, headers=headers)
 dataservers = response.json()["Items"]
 server_webid = dataservers[0]["WebId"]
 server_name = dataservers[0]["Name"]
@@ -91,7 +126,7 @@ print(f"✓ Data Server: {server_name} ({server_webid})")
 print("\nFetching PI points...")
 max_count = MAX_TAGS_TO_FETCH if MAX_TAGS_TO_FETCH else 100000
 points_url = f"{MOCK_API_URL}/piwebapi/dataservers/{server_webid}/points?maxCount={max_count}"
-response = requests.get(points_url)
+response = requests.get(points_url, headers=headers)
 points = response.json()["Items"]
 
 if MAX_TAGS_TO_FETCH:
