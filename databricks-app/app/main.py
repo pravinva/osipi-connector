@@ -19,6 +19,7 @@ import os
 # Import the existing mock PI server app
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests import mock_pi_server
 from tests.mock_pi_server import app as pi_app
 
 # Databricks SDK for querying Unity Catalog tables
@@ -103,6 +104,38 @@ async def ingestion_dashboard(request: Request):
         {
             "request": request,
             "title": "PI Lakehouse Ingestion Dashboard"
+        }
+    )
+
+
+@app.get("/config", response_class=HTMLResponse, include_in_schema=False)
+async def config_page(request: Request):
+    """Mock server configuration page."""
+    # Calculate current stats from mock server
+    current_tags = len(mock_pi_server.MOCK_TAGS)
+
+    # Count AF elements (flatten hierarchy)
+    current_af = 0
+    if "F1DP-DB-Production" in mock_pi_server.MOCK_AF_HIERARCHY:
+        for plant in mock_pi_server.MOCK_AF_HIERARCHY["F1DP-DB-Production"].get("Elements", []):
+            current_af += 1  # Plant
+            for unit in plant.get("Elements", []):
+                current_af += 1  # Unit
+                current_af += len(unit.get("Elements", []))  # Equipment
+
+    current_events = len(mock_pi_server.MOCK_EVENT_FRAMES)
+
+    # Count unique plants
+    current_plants = len(set(tag["plant"] for tag in mock_pi_server.MOCK_TAGS.values()))
+
+    return templates.TemplateResponse(
+        "config.html",
+        {
+            "request": request,
+            "current_tags": current_tags,
+            "current_af": current_af,
+            "current_events": current_events,
+            "current_plants": current_plants
         }
     )
 
@@ -304,6 +337,234 @@ async def get_recent_events() -> List[Dict[str, Any]]:
         })
 
     return events
+
+
+@app.post("/api/config/update")
+async def update_config(config: Dict[str, int]) -> Dict[str, Any]:
+    """Update mock server configuration and regenerate data."""
+    try:
+        tag_count = config.get("tag_count", 128)
+        event_count = config.get("event_count", 50)
+        event_days = config.get("event_days", 30)
+
+        # Validate inputs
+        if not (10 <= tag_count <= 100000):
+            return {"success": False, "error": "tag_count must be between 10 and 100,000"}
+        if not (10 <= event_count <= 10000):
+            return {"success": False, "error": "event_count must be between 10 and 10,000"}
+        if not (1 <= event_days <= 365):
+            return {"success": False, "error": "event_days must be between 1 and 365"}
+
+        # Regenerate mock data
+        print(f"🔄 Regenerating mock data: {tag_count} tags, {event_count} events, {event_days} days history")
+
+        # Import regeneration logic
+        import random
+        from datetime import datetime, timedelta
+
+        # Clear existing data
+        mock_pi_server.MOCK_TAGS.clear()
+        mock_pi_server.MOCK_EVENT_FRAMES.clear()
+
+        # Regenerate tags using same logic as mock_pi_server.py
+        tag_types = [
+            ("Temperature", "degC", 20.0, 100.0, 2.0),
+            ("Pressure", "bar", 1.0, 10.0, 0.5),
+            ("Flow", "m3/h", 0.0, 500.0, 10.0),
+            ("Level", "%", 0.0, 100.0, 5.0),
+            ("Power", "kW", 100.0, 5000.0, 100.0),
+            ("Speed", "RPM", 0.0, 3600.0, 50.0),
+            ("Voltage", "V", 380.0, 420.0, 5.0),
+            ("Current", "A", 0.0, 100.0, 2.0),
+        ]
+
+        AUSTRALIAN_ENERGY_FACILITIES = [
+            "Loy_Yang_A", "Loy_Yang_B", "Yallourn", "Eraring", "Bayswater",
+            "Mount_Piper", "Vales_Point", "Stanwell", "Kogan_Creek", "Callide",
+            "Gladstone", "Tarong", "Millmerran", "Torrens_Island", "Pelican_Point",
+            "Osborne", "Quarantine", "Hazelwood", "Macquarie", "Uranquinty",
+            "Hornsdale_Wind", "Capital_Wind", "Snowtown_Wind", "Lake_Bonney_Wind",
+            "Broken_Hill_Solar", "Nyngan_Solar", "Moree_Solar", "Darling_Downs_Solar",
+            "Bungala_Solar", "Tailem_Bend_Solar", "Kennedy_Energy_Park",
+            "Snowy_Hydro", "Tumut_1", "Tumut_2", "Tumut_3", "Murray_1", "Murray_2",
+            "Blowering", "Gordon", "Poatina", "Tarraleah", "Trevallyn", "Cethana",
+            "Olympic_Dam", "Mount_Isa_Copper", "Bowen_Basin", "Hunter_Valley",
+            "Pilbara_Iron_Ore", "Kalgoorlie_Gold", "Roy_Hill", "Port_Hedland",
+            "Gladstone_Refinery", "Kwinana_Refinery", "Bell_Bay_Aluminium",
+            "Kurnell_Desalination", "Perth_Desalination", "Adelaide_Desalination",
+            "Gold_Coast_Desalination", "Sydney_Water_Treatment", "Melbourne_Water",
+            "Collie", "Muja", "Bluewaters", "Cockburn", "Alcoa_Pinjarra", "Alcoa_Wagerup"
+        ]
+
+        # Calculate required plants/units
+        if tag_count <= 200:
+            plant_names = ["Eraring", "Bayswater", "Loy_Yang_A", "Stanwell"]
+            unit_count = 4
+        elif tag_count <= 1000:
+            plant_names = AUSTRALIAN_ENERGY_FACILITIES[:10]
+            unit_count = 13
+        elif tag_count <= 10000:
+            plant_names = AUSTRALIAN_ENERGY_FACILITIES[:25]
+            unit_count = 50
+        else:
+            plant_names = AUSTRALIAN_ENERGY_FACILITIES.copy()
+            while len(plant_names) < 60:
+                plant_names.append(f"Processing_Plant_{len(plant_names) - len(AUSTRALIAN_ENERGY_FACILITIES) + 1:02d}")
+            plant_names = plant_names[:60]
+            unit_count = 63
+
+        # Generate tags
+        tag_id = 1
+        for plant in plant_names:
+            for unit in range(1, unit_count + 1):
+                for sensor_type, units, min_val, max_val, noise in tag_types:
+                    tag_webid = f"F1DP-{plant}-U{unit:03d}-{sensor_type[:4]}-{tag_id:06d}"
+                    base_value = random.uniform(min_val, max_val)
+
+                    mock_pi_server.MOCK_TAGS[tag_webid] = {
+                        "name": f"{plant}_Unit{unit:03d}_{sensor_type}_PV",
+                        "units": units,
+                        "base": base_value,
+                        "min": min_val,
+                        "max": max_val,
+                        "noise": noise,
+                        "sensor_type": sensor_type,
+                        "plant": plant,
+                        "unit": unit,
+                        "descriptor": f"{sensor_type} sensor at {plant} Plant Unit {unit}",
+                        "path": f"\\\\{plant}\\Unit{unit:03d}\\{sensor_type}"
+                    }
+                    tag_id += 1
+
+                    if len(mock_pi_server.MOCK_TAGS) >= tag_count:
+                        break
+                if len(mock_pi_server.MOCK_TAGS) >= tag_count:
+                    break
+            if len(mock_pi_server.MOCK_TAGS) >= tag_count:
+                break
+
+        # Regenerate AF Hierarchy
+        af_plant_limit = min(len(plant_names), 10) if tag_count > 10000 else len(plant_names)
+        af_unit_limit = min(unit_count, 10) if tag_count > 10000 else unit_count
+
+        mock_pi_server.MOCK_AF_HIERARCHY["F1DP-DB-Production"]["Elements"].clear()
+
+        for plant in plant_names[:af_plant_limit]:
+            plant_element = {
+                "WebId": f"F1DP-Site-{plant}",
+                "Name": f"{plant}_Plant",
+                "TemplateName": "PlantTemplate",
+                "Description": f"Main production facility in {plant}",
+                "Path": f"\\\\{plant}_Plant",
+                "CategoryNames": ["Production", "Primary"],
+                "Elements": []
+            }
+
+            for unit in range(1, min(af_unit_limit + 1, unit_count + 1)):
+                unit_element = {
+                    "WebId": f"F1DP-Unit-{plant}-{unit}",
+                    "Name": f"Unit_{unit}",
+                    "TemplateName": "ProcessUnitTemplate",
+                    "Description": f"Processing unit {unit}",
+                    "Path": f"\\\\{plant}_Plant\\Unit_{unit}",
+                    "CategoryNames": ["ProcessUnit"],
+                    "Elements": []
+                }
+
+                equipment_types = ["Pump", "Compressor", "HeatExchanger", "Reactor"]
+                for equip_type in equipment_types:
+                    equipment = {
+                        "WebId": f"F1DP-Equip-{plant}-U{unit}-{equip_type}",
+                        "Name": f"{equip_type}_101",
+                        "TemplateName": f"{equip_type}Template",
+                        "Description": f"{equip_type} equipment",
+                        "Path": f"\\\\{plant}_Plant\\Unit_{unit}\\{equip_type}_101",
+                        "CategoryNames": ["Equipment"],
+                        "Elements": []
+                    }
+                    unit_element["Elements"].append(equipment)
+
+                plant_element["Elements"].append(unit_element)
+
+            mock_pi_server.MOCK_AF_HIERARCHY["F1DP-DB-Production"]["Elements"].append(plant_element)
+
+        # Regenerate event frames
+        event_templates = [
+            "BatchRunTemplate",
+            "MaintenanceTemplate",
+            "AlarmTemplate",
+            "DowntimeTemplate"
+        ]
+
+        base_time = datetime.now() - timedelta(days=event_days)
+        for i in range(event_count):
+            template = random.choice(event_templates)
+            start = base_time + timedelta(hours=random.randint(0, event_days * 24))
+            duration = timedelta(minutes=random.randint(30, 240))
+
+            plant = random.choice(plant_names)
+            unit = random.randint(1, unit_count)
+
+            event = {
+                "WebId": f"F1DP-EF-{i:04d}",
+                "Name": f"{template.replace('Template', '')}_{start.strftime('%Y%m%d_%H%M')}",
+                "TemplateName": template,
+                "StartTime": start.isoformat() + "Z",
+                "EndTime": (start + duration).isoformat() + "Z",
+                "PrimaryReferencedElementWebId": f"F1DP-Unit-{plant}-{unit}",
+                "Description": f"Event on {plant} Unit {unit}",
+                "CategoryNames": [template.replace("Template", "")],
+                "Attributes": {}
+            }
+
+            if template == "BatchRunTemplate":
+                event["Attributes"] = {
+                    "Product": random.choice(["ProductA", "ProductB", "ProductC"]),
+                    "BatchID": f"BATCH-{i:05d}",
+                    "Operator": random.choice(["Operator1", "Operator2", "Operator3"]),
+                    "TargetQuantity": random.randint(1000, 5000),
+                    "ActualQuantity": random.randint(950, 5000)
+                }
+            elif template == "MaintenanceTemplate":
+                event["Attributes"] = {
+                    "MaintenanceType": random.choice(["Scheduled", "Unscheduled", "Preventive"]),
+                    "Technician": random.choice(["Tech1", "Tech2", "Tech3"]),
+                    "WorkOrderID": f"WO-{i:05d}"
+                }
+            elif template == "AlarmTemplate":
+                event["Attributes"] = {
+                    "Severity": random.choice(["Low", "Medium", "High", "Critical"]),
+                    "AlarmType": random.choice(["ProcessAlarm", "EquipmentAlarm", "SafetyAlarm"]),
+                    "Acknowledged": random.choice([True, False])
+                }
+
+            mock_pi_server.MOCK_EVENT_FRAMES.append(event)
+
+        # Calculate AF elements
+        af_elements = 0
+        if "F1DP-DB-Production" in mock_pi_server.MOCK_AF_HIERARCHY:
+            for plant in mock_pi_server.MOCK_AF_HIERARCHY["F1DP-DB-Production"].get("Elements", []):
+                af_elements += 1
+                for unit in plant.get("Elements", []):
+                    af_elements += 1
+                    af_elements += len(unit.get("Elements", []))
+
+        print(f"✓ Regenerated: {len(mock_pi_server.MOCK_TAGS)} tags, {af_elements} AF elements, {len(mock_pi_server.MOCK_EVENT_FRAMES)} events")
+
+        return {
+            "success": True,
+            "tags": len(mock_pi_server.MOCK_TAGS),
+            "af_elements": af_elements,
+            "events": len(mock_pi_server.MOCK_EVENT_FRAMES),
+            "plants": len(plant_names)
+        }
+
+    except Exception as e:
+        print(f"❌ Configuration update failed: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
 # ============================================================================
