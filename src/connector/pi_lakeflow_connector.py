@@ -158,7 +158,64 @@ class PILakeflowConnector:
                 SELECT MAX(start_time) as max_time
                 FROM {self.config['catalog']}.{self.config['schema']}.pi_event_frames
             """).collect()[0].max_time
-            
+
             return max_time if max_time else datetime.now() - timedelta(days=30)
         except:
             return datetime.now() - timedelta(days=30)
+
+    def extract_timeseries_to_df(self):
+        """
+        Extract timeseries data and return as Spark DataFrame
+        Simplified method for DLT usage
+        """
+        self.logger.info("Extracting timeseries data for DLT")
+
+        # Get tags to ingest
+        tag_webids = self._get_tag_list()
+        self.logger.info(f"Processing {len(tag_webids)} tags")
+
+        # Get checkpoints (where we left off)
+        watermarks = self.checkpoint_mgr.get_watermarks(tag_webids)
+
+        # Extract time-series data
+        end_time = datetime.now()
+
+        all_timeseries = []
+        # Process in batches of 100 tags (batch controller limit)
+        BATCH_SIZE = 100
+        for i in range(0, len(tag_webids), BATCH_SIZE):
+            batch_tags = tag_webids[i:i+BATCH_SIZE]
+
+            # Get earliest watermark for this batch
+            min_start = min(watermarks[tag] for tag in batch_tags)
+
+            self.logger.info(f"Extracting batch {i//BATCH_SIZE + 1}: {len(batch_tags)} tags")
+
+            ts_df = self.ts_extractor.extract_recorded_data(
+                tag_webids=batch_tags,
+                start_time=min_start,
+                end_time=end_time
+            )
+
+            all_timeseries.append(ts_df)
+
+        # Combine all batches
+        if all_timeseries:
+            combined_df = pd.concat(all_timeseries, ignore_index=True)
+
+            # Convert to Spark DataFrame
+            spark_df = self.spark.createDataFrame(combined_df)
+
+            self.logger.info(f"Extracted {combined_df.shape[0]} records")
+            return spark_df
+        else:
+            # Return empty DataFrame with schema
+            from pyspark.sql.types import StructType, StructField, StringType, DoubleType, TimestampType
+            schema = StructType([
+                StructField("tag_webid", StringType(), True),
+                StructField("tag_name", StringType(), True),
+                StructField("timestamp", TimestampType(), True),
+                StructField("value", DoubleType(), True),
+                StructField("good", StringType(), True)
+            ])
+            return self.spark.createDataFrame([], schema)
