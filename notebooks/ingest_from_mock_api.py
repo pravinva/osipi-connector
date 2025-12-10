@@ -43,22 +43,34 @@ MOCK_API_URL = "https://osipi-webserver-1444828305810485.aws.databricksapps.com"
 UC_CATALOG = "osipi"
 UC_SCHEMA = "bronze"
 
-# Get OAuth token using Databricks SDK
-# The SDK automatically uses the notebook's execution context (user or service principal)
+# Get OAuth token using Service Principal for Databricks App access
 print("Authenticating to Databricks App...")
 print(f"URL: {MOCK_API_URL}")
 
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
 import requests
 
-# Initialize WorkspaceClient - automatically picks up notebook context
-wc = WorkspaceClient()
+# Get service principal credentials from secrets
+CLIENT_ID = dbutils.secrets.get(scope="sp-osipi", key="sp-client-id")
+CLIENT_SECRET = dbutils.secrets.get(scope="sp-osipi", key="sp-client-secret")
+
+# Get workspace URL for token endpoint
+workspace_url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
+
+# Initialize WorkspaceClient with service principal
+wc = WorkspaceClient(
+    host=workspace_url,
+    client_id=CLIENT_ID,
+    client_secret=CLIENT_SECRET
+)
 
 # Get OAuth headers - this returns proper Authorization header for Databricks Apps
 headers = wc.config.authenticate()
 
 print(f"✓ Authentication configured")
-print(f"  Using: {wc.config.auth_type}")
+print(f"  Using: Service Principal OAuth (M2M)")
+print(f"  Client ID: {CLIENT_ID[:8]}...")
 print(f"  Headers: {list(headers.keys())}")
 
 # API endpoints
