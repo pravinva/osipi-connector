@@ -43,16 +43,18 @@ class PILakeflowConnector:
         self.af_extractor = AFHierarchyExtractor(self.client)
         self.ef_extractor = EventFrameExtractor(self.client)
         # In DLT, skip table creation (managed by @dlt.table decorator)
-        skip_table_creation = config.get('dlt_mode', False)
+        dlt_mode = config.get('dlt_mode', False)
         self.checkpoint_mgr = CheckpointManager(
             self.spark,
             f"{config['catalog']}.checkpoints.pi_watermarks",
-            skip_table_creation=skip_table_creation
+            skip_table_creation=dlt_mode
         )
         self.writer = DeltaLakeWriter(
             self.spark,
-            config['catalog'],
-            config['schema']
+            workspace_client=None,  # Not needed in DLT mode
+            catalog=config['catalog'],
+            schema=config['schema'],
+            skip_schema_creation=dlt_mode
         )
     
     def run(self):

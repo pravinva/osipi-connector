@@ -17,16 +17,21 @@ class DeltaLakeWriter:
     def __init__(
         self,
         spark: SparkSession,
-        workspace_client: WorkspaceClient,
+        workspace_client: Optional[WorkspaceClient],
         catalog: str,
-        schema: str
+        schema: str,
+        skip_schema_creation: bool = False
     ):
         self.spark = spark
         self.workspace_client = workspace_client
         self.catalog = catalog
         self.schema = schema
         self.logger = logging.getLogger(__name__)
-        self._ensure_schema_exists()
+        self.skip_schema_creation = skip_schema_creation
+
+        # Skip schema creation in DLT mode
+        if not skip_schema_creation:
+            self._ensure_schema_exists()
 
     def _ensure_schema_exists(self):
         """Create catalog and schema if don't exist"""
@@ -120,6 +125,10 @@ class DeltaLakeWriter:
         Returns:
             TableInfo object or None if table doesn't exist
         """
+        if not self.workspace_client:
+            self.logger.warning("WorkspaceClient not available, cannot get table info")
+            return None
+
         full_table_name = f"{self.catalog}.{self.schema}.{table_name}"
 
         try:
@@ -136,6 +145,10 @@ class DeltaLakeWriter:
         Returns:
             List of table names
         """
+        if not self.workspace_client:
+            self.logger.warning("WorkspaceClient not available, cannot list tables")
+            return []
+
         try:
             tables = self.workspace_client.tables.list(
                 catalog_name=self.catalog,
