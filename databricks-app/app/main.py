@@ -60,9 +60,11 @@ except Exception as e:
 def execute_sql(query: str) -> List[Dict]:
     """Execute SQL query and return results as list of dicts."""
     if not w or not WAREHOUSE_ID:
+        print(f"⚠️  Cannot execute SQL: w={w}, WAREHOUSE_ID={WAREHOUSE_ID}")
         return []
 
     try:
+        print(f"🔍 Executing SQL: {query[:100]}...")
         response = w.statement_execution.execute_statement(
             statement=query,
             warehouse_id=WAREHOUSE_ID,
@@ -71,18 +73,28 @@ def execute_sql(query: str) -> List[Dict]:
             wait_timeout="30s"
         )
 
-        if not response.result or not response.result.data_array:
+        print(f"📊 Response status: {response.status}")
+
+        if not response.result:
+            print("⚠️  No result in response")
+            return []
+
+        if not response.result.data_array:
+            print("⚠️  No data_array in result")
             return []
 
         # Convert to list of dicts
         columns = [col.name for col in response.manifest.schema.columns]
+        print(f"✓ Got {len(response.result.data_array)} rows with columns: {columns}")
         results = []
         for row in response.result.data_array:
             results.append(dict(zip(columns, row)))
         return results
 
     except Exception as e:
-        print(f"SQL execution error: {e}")
+        print(f"❌ SQL execution error: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 
@@ -449,10 +461,12 @@ async def get_af_hierarchy_data(limit: int = 100) -> Dict[str, Any]:
     results = execute_sql(f"""
         SELECT
             name,
-            element_type,
+            equipment_type,
             template_name,
             path,
-            description
+            description,
+            plant,
+            webid
         FROM {UC_CATALOG}.{UC_SCHEMA}.pi_af_hierarchy
         ORDER BY path
         LIMIT {limit}

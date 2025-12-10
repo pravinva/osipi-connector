@@ -243,7 +243,7 @@
             document.getElementById('total-elements').textContent = data.length;
 
             const types = data.reduce((acc, item) => {
-                const type = item.element_type || 'Unknown';
+                const type = item.equipment_type || 'Unknown';
                 acc[type] = (acc[type] || 0) + 1;
                 return acc;
             }, {});
@@ -300,12 +300,12 @@
             const hasChildren = children.length > 0;
 
             const icon = hasChildren ? '▶' : '•';
-            const typeCls = `type-${(node.element_type || 'element').toLowerCase()}`;
+            const typeCls = `type-${(node.equipment_type || 'element').toLowerCase()}`;
 
             label.innerHTML = `
                 <span class="node-icon">${icon}</span>
                 <strong>${node.name || 'Unnamed'}</strong>
-                <span class="node-type ${typeCls}">${node.element_type || 'Element'}</span>
+                <span class="node-type ${typeCls}">${node.equipment_type || 'Element'}</span>
             `;
 
             div.appendChild(label);
