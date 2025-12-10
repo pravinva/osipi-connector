@@ -34,97 +34,100 @@ print(f"Project Root: {PROJECT_ROOT}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 1: Validate DAB Configuration
-
-# COMMAND ----------
-
-print("=" * 80)
-print("Validating Databricks Asset Bundle Configuration...")
-print("=" * 80)
-
-# Change to project directory and validate
-result = subprocess.run(
-    ["databricks", "bundle", "validate", "-t", DAB_TARGET],
-    cwd=PROJECT_ROOT,
-    capture_output=True,
-    text=True
-)
-
-if result.returncode == 0:
-    print("✓ Validation PASSED")
-    print("\nOutput:")
-    print(result.stdout)
-else:
-    print("✗ Validation FAILED")
-    print("\nError:")
-    print(result.stderr)
-    raise Exception("DAB validation failed. Please fix configuration errors before deploying.")
+# MAGIC ## Important: CLI Commands Cannot Run in Notebooks
+# MAGIC
+# MAGIC Databricks notebooks don't support `subprocess` calls to the CLI.
+# MAGIC
+# MAGIC **Instead, use one of these approaches:**
+# MAGIC
+# MAGIC ### Option 1: Local Terminal (Recommended)
+# MAGIC ```bash
+# MAGIC cd /path/to/osipi-connector
+# MAGIC databricks bundle validate -t dev
+# MAGIC databricks bundle deploy -t dev
+# MAGIC ```
+# MAGIC
+# MAGIC ### Option 2: Databricks REST API (Advanced)
+# MAGIC Use the Databricks SDK to deploy resources programmatically.
+# MAGIC See cells below for examples.
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 2: Deploy Pipelines
+# MAGIC ## Deploy Using Databricks SDK (Alternative)
 
 # COMMAND ----------
 
 print("=" * 80)
-print(f"Deploying to {DAB_TARGET.upper()} environment...")
+print("Deployment Instructions")
 print("=" * 80)
-
-# Deploy the bundle
-result = subprocess.run(
-    ["databricks", "bundle", "deploy", "-t", DAB_TARGET],
-    cwd=PROJECT_ROOT,
-    capture_output=True,
-    text=True
-)
-
-if result.returncode == 0:
-    print("✓ Deployment SUCCEEDED")
-    print("\nOutput:")
-    print(result.stdout)
-else:
-    print("✗ Deployment FAILED")
-    print("\nError:")
-    print(result.stderr)
-    raise Exception("DAB deployment failed. Check error messages above.")
+print("\nTo deploy the generated DAB configuration:")
+print("\n1. Open a terminal with Databricks CLI installed and configured")
+print(f"2. Navigate to: {PROJECT_ROOT}")
+print(f"3. Validate: databricks bundle validate -t {DAB_TARGET}")
+print(f"4. Deploy: databricks bundle deploy -t {DAB_TARGET}")
+print("\nOR if using a local clone:")
+print("1. Clone repo: git clone <your-repo-url>")
+print("2. cd osipi-connector")
+print(f"3. databricks bundle deploy -t {DAB_TARGET}")
+print("\n" + "=" * 80)
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 3: Deployment Summary
+# MAGIC ## View Deployed Resources (SDK Method)
 
 # COMMAND ----------
 
+from databricks.sdk import WorkspaceClient
+
+w = WorkspaceClient()
+
 print("=" * 80)
-print("Deployment Complete!")
+print("Current DLT Pipelines (OSI PI)")
 print("=" * 80)
 
-# Get deployed resources
 try:
-    result = subprocess.run(
-        ["databricks", "bundle", "resources", "-t", DAB_TARGET],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True
-    )
+    # List all pipelines with "osipi" in the name
+    pipelines = [p for p in w.pipelines.list_pipelines() if p.name and "osipi" in p.name.lower()]
 
-    if result.returncode == 0:
-        print("\nDeployed Resources:")
-        print(result.stdout)
+    if pipelines:
+        print(f"\nFound {len(pipelines)} OSI PI pipeline(s):")
+        for p in pipelines:
+            print(f"\n  Pipeline: {p.name}")
+            print(f"  ID: {p.pipeline_id}")
+            print(f"  State: {p.state}")
+            print(f"  Target: {p.spec.target if p.spec else 'N/A'}")
     else:
-        print("\nCouldn't fetch resource list (this is okay, deployment succeeded)")
+        print("\nNo OSI PI pipelines found.")
+        print("Deploy the DAB bundle first using the CLI commands above.")
 except Exception as e:
-    print(f"\nNote: Couldn't fetch resource list: {e}")
+    print(f"\nError listing pipelines: {e}")
 
 print("\n" + "=" * 80)
-print("Next Steps:")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Next Steps
+
+# COMMAND ----------
+
 print("=" * 80)
-print("1. Go to Workflows → Delta Live Tables to see your pipelines")
-print("2. Go to Workflows → Jobs to see scheduled jobs (batch mode only)")
-print("3. Monitor pipeline runs in the DLT UI")
-print("4. Check ingested data in Data Explorer → osipi.bronze")
+print("After Deployment")
 print("=" * 80)
+print("\n1. View Pipelines:")
+print("   - Go to Workflows → Delta Live Tables")
+print("   - Look for pipelines named 'osipi_demo_ingestion_group_*'")
+print("\n2. View Jobs (batch mode only):")
+print("   - Go to Workflows → Jobs")
+print("   - Look for jobs named 'osipi_demo_job_group_*'")
+print("\n3. Monitor Data:")
+print("   - Go to Data Explorer → osipi.bronze")
+print("   - Check tables: pi_timeseries, pi_af_hierarchy, pi_event_frames")
+print("\n4. Trigger Manual Run (optional):")
+print("   - See 'Optional: Trigger Pipeline Runs' cell below")
+print("\n" + "=" * 80)
 
 # COMMAND ----------
 

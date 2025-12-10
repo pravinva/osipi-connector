@@ -471,28 +471,16 @@ if AUTO_DEPLOY_DAB:
 
         print(f"✓ Copied YAML files to {project_root}/deployment/resources/")
 
-        # Validate DAB
-        print("\nValidating DAB configuration...")
-        validate_cmd = f"cd {project_root} && databricks bundle validate -t {DAB_TARGET}"
-        validate_result = dbutils.notebook.run(
-            "/System/validate_dab",  # Custom validation notebook (create if needed)
-            timeout_seconds=60,
-            arguments={"project_root": project_root, "target": DAB_TARGET}
-        )
-
-        print(f"✓ DAB validation: {validate_result}")
-
-        # Deploy DAB
-        print(f"\nDeploying to {DAB_TARGET} environment...")
-        deploy_cmd = f"cd {project_root} && databricks bundle deploy -t {DAB_TARGET}"
-
-        # Note: Direct shell execution not available in notebooks
-        # Use Databricks CLI via subprocess or create a job
-        print(f"\n⚠️  Manual deployment required:")
-        print(f"   Run in terminal: cd {project_root} && databricks bundle deploy -t {DAB_TARGET}")
-
         print("\n" + "=" * 80)
-        print("OR use Databricks REST API to trigger deployment job")
+        print("Next: Validate and Deploy DAB")
+        print("=" * 80)
+        print("\nDatabricks Asset Bundle commands must be run from a terminal with the CLI.")
+        print(f"\nManual deployment steps:")
+        print(f"1. Open a terminal with Databricks CLI configured")
+        print(f"2. Navigate to project: cd {project_root}")
+        print(f"3. Validate bundle: databricks bundle validate -t {DAB_TARGET}")
+        print(f"4. Deploy bundle: databricks bundle deploy -t {DAB_TARGET}")
+        print(f"5. Monitor pipelines in Databricks UI")
         print("=" * 80)
 
     except Exception as e:
