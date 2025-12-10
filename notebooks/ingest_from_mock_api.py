@@ -236,6 +236,22 @@ if timeseries_data:
     # Cast unit to integer (extracted as int from tag name)
     timeseries_df = timeseries_df.withColumn("unit", col("unit").cast("int"))
 
+    # Reorder columns to match table schema exactly (excluding generated 'date' column)
+    timeseries_df = timeseries_df.select(
+        "tag_webid",
+        "tag_name",
+        "timestamp",
+        "value",
+        "units",
+        "quality_good",
+        "quality_questionable",
+        "quality_substituted",
+        "ingestion_timestamp",
+        "sensor_type",
+        "plant",
+        "unit"
+    )
+
     display(timeseries_df.limit(10))
 
     record_count = len(timeseries_data)
