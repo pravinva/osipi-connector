@@ -185,7 +185,16 @@ async def af_hierarchy_table_page(request: Request):
 
 @app.get("/data/events", response_class=HTMLResponse, include_in_schema=False)
 async def events_page(request: Request):
-    """View Event Frames from Unity Catalog."""
+    """View Events & Alarms Dashboard (Visual)."""
+    return templates.TemplateResponse(
+        "events_dashboard.html",
+        {"request": request}
+    )
+
+
+@app.get("/data/events-table", response_class=HTMLResponse, include_in_schema=False)
+async def events_table_page(request: Request):
+    """View Event Frames as table."""
     results = execute_sql(f"""
         SELECT
             name,
