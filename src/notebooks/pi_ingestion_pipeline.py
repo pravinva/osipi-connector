@@ -140,15 +140,17 @@ def pi_watermarks():
     This table is completely recomputed on each run to reflect the latest
     watermark per tag from the pi_timeseries table.
     """
-    from pyspark.sql.functions import max as spark_max, count, current_timestamp
+    from pyspark.sql.functions import max as spark_max, count, current_timestamp, lit
 
     # Read ALL timeseries data (complete refresh)
     df = dlt.read("pi_timeseries")
 
     # Calculate max timestamp and record count per tag
-    watermarks_df = df.groupBy("tag_webid", "tag_name").agg(
+    # Note: tag_name is set to tag_webid since we don't have friendly names yet
+    watermarks_df = df.groupBy("tag_webid").agg(
         spark_max("timestamp").alias("last_timestamp"),
         count("*").alias("record_count")
-    ).withColumn("last_ingestion_run", current_timestamp())
+    ).withColumn("tag_name", col("tag_webid")) \
+     .withColumn("last_ingestion_run", current_timestamp())
 
     return watermarks_df
