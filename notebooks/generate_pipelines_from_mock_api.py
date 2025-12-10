@@ -26,17 +26,22 @@ import os
 MOCK_API_URL = "https://osipi-webserver-1444828305810485.aws.databricksapps.com"
 DATASERVERS_ENDPOINT = f"{MOCK_API_URL}/piwebapi/dataservers"
 
-# Pipeline Configuration
+# Pipeline Configuration (CONFIGURABLE)
 PROJECT_NAME = "osipi_demo"
 TARGET_CATALOG = "osipi"
 TARGET_SCHEMA = "bronze"
 CONNECTION_NAME = "mock_pi_connection"  # Will use mock API, no real auth needed
 
-# Load Balancing Strategy
-TAGS_PER_PIPELINE = 100  # Number of tags per pipeline
+# Load Balancing Strategy (CONFIGURABLE)
+MAX_TAGS_TO_FETCH = None  # Set to None for all tags, or limit (e.g., 1000 for testing)
+TAGS_PER_PIPELINE = 100   # Number of tags per pipeline (adjust based on your needs)
 SCHEDULE_15MIN = "0 */15 * * * ?"  # Every 15 minutes (Quartz cron)
 SCHEDULE_30MIN = "0 */30 * * * ?"  # Every 30 minutes
 SCHEDULE_HOURLY = "0 0 * * * ?"    # Every hour
+
+# DAB Deployment (CONFIGURABLE)
+AUTO_DEPLOY_DAB = True     # Set to True to automatically deploy after generation
+DAB_TARGET = "dev"         # Target environment: dev, prod
 
 # Output paths
 OUTPUT_CSV = "/Workspace/Users/pravin.varma@databricks.com/osipi_pipeline_config.csv"
@@ -63,12 +68,17 @@ server_name = dataservers[0]["Name"]
 print(f"✓ Data Server: {server_name} ({server_webid})")
 
 # Get all PI points
-print("\nFetching all PI points...")
-points_url = f"{MOCK_API_URL}/piwebapi/dataservers/{server_webid}/points?maxCount=100000"
+print("\nFetching PI points...")
+max_count = MAX_TAGS_TO_FETCH if MAX_TAGS_TO_FETCH else 100000
+points_url = f"{MOCK_API_URL}/piwebapi/dataservers/{server_webid}/points?maxCount={max_count}"
 response = requests.get(points_url)
 points = response.json()["Items"]
 
-print(f"✓ Found {len(points)} PI points\n")
+if MAX_TAGS_TO_FETCH:
+    points = points[:MAX_TAGS_TO_FETCH]
+    print(f"✓ Fetched {len(points)} PI points (limited to {MAX_TAGS_TO_FETCH})\n")
+else:
+    print(f"✓ Found {len(points)} PI points (all available tags)\n")
 
 # Convert to DataFrame
 tags_df = pd.DataFrame([{
@@ -342,3 +352,94 @@ print("Sample pipelines.yml:")
 print("-" * 80)
 print(yaml.dump(pipelines_yaml, default_flow_style=False, sort_keys=False)[:1000])
 print("\n... (truncated)")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 7. Deploy DAB (Optional - Automated)
+
+# COMMAND ----------
+
+if AUTO_DEPLOY_DAB:
+    print("=" * 80)
+    print("Deploying Databricks Asset Bundle...")
+    print("=" * 80)
+
+    # Copy generated YAML files to project deployment/resources directory
+    import shutil
+
+    project_root = "/Workspace/Repos/production/osipi-connector"  # Adjust if needed
+
+    try:
+        # Copy YAML files to project
+        shutil.copy(
+            pipelines_file.replace('/Workspace', '/dbfs/Workspace'),
+            f"{project_root}/deployment/resources/pipelines.yml"
+        )
+        shutil.copy(
+            jobs_file.replace('/Workspace', '/dbfs/Workspace'),
+            f"{project_root}/deployment/resources/jobs.yml"
+        )
+
+        print(f"✓ Copied YAML files to {project_root}/deployment/resources/")
+
+        # Validate DAB
+        print("\nValidating DAB configuration...")
+        validate_cmd = f"cd {project_root} && databricks bundle validate -t {DAB_TARGET}"
+        validate_result = dbutils.notebook.run(
+            "/System/validate_dab",  # Custom validation notebook (create if needed)
+            timeout_seconds=60,
+            arguments={"project_root": project_root, "target": DAB_TARGET}
+        )
+
+        print(f"✓ DAB validation: {validate_result}")
+
+        # Deploy DAB
+        print(f"\nDeploying to {DAB_TARGET} environment...")
+        deploy_cmd = f"cd {project_root} && databricks bundle deploy -t {DAB_TARGET}"
+
+        # Note: Direct shell execution not available in notebooks
+        # Use Databricks CLI via subprocess or create a job
+        print(f"\n⚠️  Manual deployment required:")
+        print(f"   Run in terminal: cd {project_root} && databricks bundle deploy -t {DAB_TARGET}")
+
+        print("\n" + "=" * 80)
+        print("OR use Databricks REST API to trigger deployment job")
+        print("=" * 80)
+
+    except Exception as e:
+        print(f"⚠️  Could not auto-deploy: {e}")
+        print(f"\nManual deployment steps:")
+        print(f"1. Copy YAML files from {OUTPUT_YAML_DIR} to deployment/resources/")
+        print(f"2. Run: databricks bundle validate -t {DAB_TARGET}")
+        print(f"3. Run: databricks bundle deploy -t {DAB_TARGET}")
+
+else:
+    print("\n" + "=" * 80)
+    print("Auto-deployment is DISABLED")
+    print("=" * 80)
+    print(f"To deploy manually:")
+    print(f"1. Copy YAML files to deployment/resources/")
+    print(f"2. Run: databricks bundle validate -t {DAB_TARGET}")
+    print(f"3. Run: databricks bundle deploy -t {DAB_TARGET}")
+    print("=" * 80)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Configuration Summary
+# MAGIC
+# MAGIC **Configurable Parameters:**
+# MAGIC
+# MAGIC ```python
+# MAGIC MAX_TAGS_TO_FETCH = None        # Limit for testing (None = all tags)
+# MAGIC TAGS_PER_PIPELINE = 100         # Tags per pipeline group
+# MAGIC AUTO_DEPLOY_DAB = True          # Auto-deploy after generation
+# MAGIC DAB_TARGET = "dev"              # Target: dev, prod
+# MAGIC ```
+# MAGIC
+# MAGIC **Example Configurations:**
+# MAGIC
+# MAGIC - **Quick Test**: `MAX_TAGS_TO_FETCH = 300, TAGS_PER_PIPELINE = 100` → 3 pipelines
+# MAGIC - **Medium Scale**: `MAX_TAGS_TO_FETCH = 1000, TAGS_PER_PIPELINE = 100` → 10 pipelines
+# MAGIC - **Full Scale**: `MAX_TAGS_TO_FETCH = None, TAGS_PER_PIPELINE = 100` → 300+ pipelines
