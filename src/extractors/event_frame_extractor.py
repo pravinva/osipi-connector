@@ -36,41 +36,23 @@ class EventFrameExtractor:
             DataFrame with event frame data
         """
 
-        # Try POST endpoint first (works with Databricks App authentication)
-        try:
-            payload = {
-                "db_webid": database_webid,
-                "startTime": start_time.isoformat() + "Z",
-                "endTime": end_time.isoformat() + "Z",
-                "searchMode": search_mode,
-                "maxCount": 1000
-            }
+        # Use POST endpoint (required for Databricks App authentication)
+        payload = {
+            "db_webid": database_webid,
+            "startTime": start_time.isoformat() + "Z",
+            "endTime": end_time.isoformat() + "Z",
+            "searchMode": search_mode,
+            "maxCount": 1000
+        }
 
-            if template_name:
-                payload["templateName"] = template_name
+        if template_name:
+            payload["templateName"] = template_name
 
-            response = self.client.post(
-                "/piwebapi/assetdatabases/eventframes",
-                json=payload
-            )
-            event_frames = response.json().get("Items", [])
-        except Exception as e:
-            self.logger.warning(f"POST endpoint failed, falling back to GET: {e}")
-            # Fallback to GET endpoint
-            params = {
-                "startTime": start_time.isoformat() + "Z",
-                "endTime": end_time.isoformat() + "Z",
-                "searchMode": search_mode
-            }
-
-            if template_name:
-                params["templateName"] = template_name
-
-            response = self.client.get(
-                f"/piwebapi/assetdatabases/{database_webid}/eventframes",
-                params=params
-            )
-            event_frames = response.json().get("Items", [])
+        response = self.client.post(
+            "/piwebapi/assetdatabases/eventframes",
+            json=payload
+        )
+        event_frames = response.json().get("Items", [])
 
         # Parse event frames
         events_data = []

@@ -14,15 +14,9 @@ class AFHierarchyExtractor:
 
     def get_asset_databases(self) -> List[Dict]:
         """List available AF databases"""
-        # Try POST endpoint first (works with Databricks App authentication)
-        try:
-            response = self.client.post("/piwebapi/assetdatabases/list", json={})
-            return response.json().get("Items", [])
-        except Exception as e:
-            self.logger.warning(f"POST endpoint failed, falling back to GET: {e}")
-            # Fallback to GET endpoint
-            response = self.client.get("/piwebapi/assetdatabases")
-            return response.json().get("Items", [])
+        # Use POST endpoint (required for Databricks App authentication)
+        response = self.client.post("/piwebapi/assetdatabases/list", json={})
+        return response.json().get("Items", [])
 
     def extract_hierarchy(
         self,
@@ -93,20 +87,12 @@ class AFHierarchyExtractor:
             walk_elements(root_element_webid)
         else:
             # Start from database root elements
-            # Try POST endpoint first (works with Databricks App authentication)
-            try:
-                db_elements_response = self.client.post(
-                    "/piwebapi/assetdatabases/elements",
-                    json={"db_webid": database_webid, "maxCount": 10000}
-                )
-                root_elements = db_elements_response.json().get("Items", [])
-            except Exception as e:
-                self.logger.warning(f"POST endpoint failed, falling back to GET: {e}")
-                # Fallback to GET endpoint
-                db_elements_response = self.client.get(
-                    f"/piwebapi/assetdatabases/{database_webid}/elements"
-                )
-                root_elements = db_elements_response.json().get("Items", [])
+            # Use POST endpoint (required for Databricks App authentication)
+            db_elements_response = self.client.post(
+                "/piwebapi/assetdatabases/elements",
+                json={"db_webid": database_webid, "maxCount": 10000}
+            )
+            root_elements = db_elements_response.json().get("Items", [])
 
             for root in root_elements:
                 walk_elements(root["WebId"])
