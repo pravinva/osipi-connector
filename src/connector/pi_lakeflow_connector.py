@@ -230,3 +230,138 @@ class PILakeflowConnector:
                 StructField("good", StringType(), True)
             ])
             return self.spark.createDataFrame([], schema)
+
+    def extract_af_hierarchy_to_df(self):
+        """
+        Extract AF hierarchy and return as Spark DataFrame
+        Simplified method for DLT usage
+        """
+        self.logger.info("Extracting AF hierarchy for DLT")
+
+        # Get all asset databases
+        databases = self.af_extractor.get_asset_databases()
+        self.logger.info(f"Found {len(databases)} asset databases")
+
+        all_hierarchy = []
+        for db in databases:
+            db_webid = db["WebId"]
+            db_name = db["Name"]
+            self.logger.info(f"Extracting hierarchy from database: {db_name}")
+
+            # Extract hierarchy for this database
+            hierarchy_df = self.af_extractor.extract_hierarchy(db_webid)
+
+            if not hierarchy_df.empty:
+                # Add database info
+                hierarchy_df['database_webid'] = db_webid
+                hierarchy_df['database_name'] = db_name
+                all_hierarchy.append(hierarchy_df)
+
+        # Combine all databases
+        if all_hierarchy:
+            combined_df = pd.concat(all_hierarchy, ignore_index=True)
+
+            # Convert to Spark DataFrame
+            spark_df = self.spark.createDataFrame(combined_df)
+
+            self.logger.info(f"Extracted {combined_df.shape[0]} AF elements")
+            return spark_df
+        else:
+            # Return empty DataFrame with schema
+            from pyspark.sql.types import StructType, StructField, StringType, IntegerType, ArrayType
+            schema = StructType([
+                StructField("element_id", StringType(), True),
+                StructField("element_name", StringType(), True),
+                StructField("element_path", StringType(), True),
+                StructField("parent_id", StringType(), True),
+                StructField("template_name", StringType(), True),
+                StructField("element_type", StringType(), True),
+                StructField("description", StringType(), True),
+                StructField("categories", ArrayType(StringType()), True),
+                StructField("depth", IntegerType(), True),
+                StructField("database_webid", StringType(), True),
+                StructField("database_name", StringType(), True)
+            ])
+            return self.spark.createDataFrame([], schema)
+
+    def extract_event_frames_to_df(self):
+        """
+        Extract event frames and return as Spark DataFrame
+        Simplified method for DLT usage
+        """
+        self.logger.info("Extracting event frames for DLT")
+
+        # Get time range from config or use defaults
+        if 'start_time' in self.config and 'end_time' in self.config:
+            start_time = self.config['start_time']
+            end_time = self.config['end_time']
+        else:
+            # Default to last 30 days
+            end_time = datetime.now()
+            start_time = end_time - timedelta(days=30)
+
+        self.logger.info(f"Extracting event frames from {start_time} to {end_time}")
+
+        # Get all asset databases
+        databases = self.af_extractor.get_asset_databases()
+        self.logger.info(f"Found {len(databases)} asset databases")
+
+        all_events = []
+        for db in databases:
+            db_webid = db["WebId"]
+            db_name = db["Name"]
+            self.logger.info(f"Extracting event frames from database: {db_name}")
+
+            # Extract event frames for this database
+            events_df = self.ef_extractor.extract_event_frames(
+                database_webid=db_webid,
+                start_time=start_time,
+                end_time=end_time
+            )
+
+            if not events_df.empty:
+                # Add database info
+                events_df['database_webid'] = db_webid
+                events_df['database_name'] = db_name
+                all_events.append(events_df)
+
+        # Combine all databases
+        if all_events:
+            combined_df = pd.concat(all_events, ignore_index=True)
+
+            # Convert event_attributes dict to string for Spark compatibility
+            if 'event_attributes' in combined_df.columns:
+                combined_df['event_attributes'] = combined_df['event_attributes'].apply(str)
+
+            # Convert category list to string for Spark compatibility
+            if 'category' in combined_df.columns:
+                combined_df['category'] = combined_df['category'].apply(lambda x: ','.join(x) if isinstance(x, list) else '')
+
+            # Convert referenced_elements list to string
+            if 'referenced_elements' in combined_df.columns:
+                combined_df['referenced_elements'] = combined_df['referenced_elements'].apply(lambda x: ','.join(x) if isinstance(x, list) else '')
+
+            # Convert to Spark DataFrame
+            spark_df = self.spark.createDataFrame(combined_df)
+
+            self.logger.info(f"Extracted {combined_df.shape[0]} event frames")
+            return spark_df
+        else:
+            # Return empty DataFrame with schema
+            from pyspark.sql.types import StructType, StructField, StringType, TimestampType, DoubleType
+            schema = StructType([
+                StructField("event_frame_id", StringType(), True),
+                StructField("event_name", StringType(), True),
+                StructField("template_name", StringType(), True),
+                StructField("start_time", TimestampType(), True),
+                StructField("end_time", TimestampType(), True),
+                StructField("primary_element_id", StringType(), True),
+                StructField("category", StringType(), True),
+                StructField("description", StringType(), True),
+                StructField("duration_minutes", DoubleType(), True),
+                StructField("event_attributes", StringType(), True),
+                StructField("referenced_elements", StringType(), True),
+                StructField("database_webid", StringType(), True),
+                StructField("database_name", StringType(), True)
+            ])
+            return self.spark.createDataFrame([], schema)
