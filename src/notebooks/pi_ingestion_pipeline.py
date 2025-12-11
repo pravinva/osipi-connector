@@ -27,6 +27,10 @@ target_catalog = spark.conf.get('pi.target.catalog')
 target_schema = spark.conf.get('pi.target.schema')
 start_time_offset_days = int(spark.conf.get('pi.start_time_offset_days', '30'))
 
+# Ensure URL ends with /piwebapi
+if not pi_server_url.endswith('/piwebapi'):
+    pi_server_url = f"{pi_server_url}/piwebapi"
+
 # Detect authentication type based on connection name
 # For mock_pi_connection (Databricks App), use OAuth M2M
 # For real PI servers, use basic auth from connection-specific scope
