@@ -172,13 +172,13 @@ async def af_hierarchy_table_page(request: Request):
     """View AF Hierarchy data as table."""
     results = execute_sql(f"""
         SELECT
-            name,
+            element_name as name,
             element_type,
             template_name,
-            path,
+            element_path as path,
             description
         FROM {UC_CATALOG}.{UC_SCHEMA}.pi_af_hierarchy
-        ORDER BY path
+        ORDER BY element_path
         LIMIT 100
     """)
 
@@ -207,11 +207,11 @@ async def events_table_page(request: Request):
     """View Event Frames as table."""
     results = execute_sql(f"""
         SELECT
-            name,
+            event_name as name,
             template_name,
             start_time,
             end_time,
-            attributes
+            event_attributes as attributes
         FROM {UC_CATALOG}.{UC_SCHEMA}.pi_event_frames
         ORDER BY start_time DESC
         LIMIT 100
@@ -233,10 +233,10 @@ async def alarms_page(request: Request):
     """View Alarms (AlarmTemplate events) from Unity Catalog."""
     results = execute_sql(f"""
         SELECT
-            name,
+            event_name as name,
             start_time,
             end_time,
-            attributes
+            event_attributes as attributes
         FROM {UC_CATALOG}.{UC_SCHEMA}.pi_event_frames
         WHERE template_name = 'AlarmTemplate'
         ORDER BY start_time DESC
@@ -278,7 +278,7 @@ async def get_ingestion_status() -> Dict[str, Any]:
     """)
 
     af_elements_count = execute_sql(f"""
-        SELECT COUNT(DISTINCT webid) as count
+        SELECT COUNT(DISTINCT element_id) as count
         FROM {UC_CATALOG}.{UC_SCHEMA}.pi_af_hierarchy
     """)
 
@@ -347,13 +347,14 @@ async def get_ingestion_timeseries() -> Dict[str, List]:
 async def get_tags_by_plant() -> Dict[str, List]:
     """Get tag distribution by plant/site from osipi.bronze tables."""
 
+    # Extract plant names from element_name (e.g., "Sydney_Plant" -> "Sydney")
     results = execute_sql(f"""
         SELECT
-            plant,
-            COUNT(DISTINCT webid) as tag_count
+            SPLIT(element_name, '_')[0] as plant,
+            COUNT(DISTINCT element_id) as tag_count
         FROM {UC_CATALOG}.{UC_SCHEMA}.pi_af_hierarchy
-        WHERE plant IS NOT NULL
-        GROUP BY plant
+        WHERE depth = 0 AND element_name LIKE '%_Plant'
+        GROUP BY SPLIT(element_name, '_')[0]
         ORDER BY tag_count DESC
         LIMIT 10
     """)
@@ -458,15 +459,15 @@ async def get_af_hierarchy_data(limit: int = 100000) -> Dict[str, Any]:
     """Get AF hierarchy data from Unity Catalog."""
     results = execute_sql(f"""
         SELECT
-            name,
-            equipment_type,
+            element_name as name,
+            element_type as equipment_type,
             template_name,
-            path,
+            element_path as path,
             description,
-            plant,
-            webid
+            SPLIT(element_name, '_')[0] as plant,
+            element_id as webid
         FROM {UC_CATALOG}.{UC_SCHEMA}.pi_af_hierarchy
-        ORDER BY path
+        ORDER BY element_path
         LIMIT {limit}
     """)
 
@@ -481,12 +482,12 @@ async def get_event_frames_data(limit: int = 100) -> Dict[str, Any]:
     """Get event frames data from Unity Catalog."""
     results = execute_sql(f"""
         SELECT
-            name,
+            event_name as name,
             template_name,
             start_time,
             end_time,
-            attributes,
-            primary_referenced_element_webid
+            event_attributes as attributes,
+            primary_element_id as primary_referenced_element_webid
         FROM {UC_CATALOG}.{UC_SCHEMA}.pi_event_frames
         ORDER BY start_time DESC
         LIMIT {limit}
@@ -503,7 +504,7 @@ async def get_timeseries_data(limit: int = 100) -> Dict[str, Any]:
     """Get timeseries data from Unity Catalog."""
     results = execute_sql(f"""
         SELECT
-            tag_name,
+            tag_webid as tag_name,
             timestamp,
             value,
             units,
