@@ -20,16 +20,16 @@ class TimeSeriesExtractor:
         tag_webids: List[str],
         start_time: datetime,
         end_time: datetime,
-        max_count: int = 10000
+        max_count: int = 100
     ) -> pd.DataFrame:
         """
         Extract historical data for multiple tags using batch controller
-        
+
         Args:
             tag_webids: List of PI point WebIds
             start_time: Start of time range
             end_time: End of time range
-            max_count: Max records per tag per request
+            max_count: Max records per tag per request (default 100 to avoid large batch responses)
             
         Returns:
             DataFrame with columns: tag_webid, timestamp, value, quality_good, units
