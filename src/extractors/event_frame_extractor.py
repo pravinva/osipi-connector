@@ -50,7 +50,7 @@ class EventFrameExtractor:
 
         response = self.client.post(
             "/piwebapi/assetdatabases/eventframes",
-            json=payload
+            payload
         )
         event_frames = response.json().get("Items", [])
 

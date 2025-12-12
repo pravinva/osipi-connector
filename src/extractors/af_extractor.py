@@ -15,7 +15,7 @@ class AFHierarchyExtractor:
     def get_asset_databases(self) -> List[Dict]:
         """List available AF databases"""
         # Use POST endpoint (required for Databricks App authentication)
-        response = self.client.post("/piwebapi/assetdatabases/list", json={})
+        response = self.client.post("/piwebapi/assetdatabases/list", {})
         return response.json().get("Items", [])
 
     def extract_hierarchy(
@@ -48,7 +48,7 @@ class AFHierarchyExtractor:
             try:
                 element_response = self.client.post(
                     "/piwebapi/elements/get",
-                    json={"element_webid": element_webid}
+                    {"element_webid": element_webid}
                 )
                 element = element_response.json()
             except Exception as e:
@@ -75,7 +75,7 @@ class AFHierarchyExtractor:
             try:
                 children_response = self.client.post(
                     "/piwebapi/elements/children",
-                    json={"element_webid": element_webid}
+                    {"element_webid": element_webid}
                 )
                 children = children_response.json().get("Items", [])
 
@@ -94,7 +94,7 @@ class AFHierarchyExtractor:
             # Use POST endpoint (required for Databricks App authentication)
             db_elements_response = self.client.post(
                 "/piwebapi/assetdatabases/elements",
-                json={"db_webid": database_webid, "maxCount": 10000}
+                {"db_webid": database_webid, "maxCount": 10000}
             )
             root_elements = db_elements_response.json().get("Items", [])
 
