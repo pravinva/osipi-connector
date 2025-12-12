@@ -38,10 +38,15 @@ tag_types = [
     ("Current", "A", 0.0, 100.0, 2.0),
 ]
 
-# Multi-plant architecture: 5 plants with 2,000 tags each = 10,000 total tags
-# Each pipeline will handle ONE plant's data (realistic OT architecture)
-plant_names = ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide"]
-units_per_plant = 250  # 250 units per plant (250 × 8 sensors = 2,000 tags per plant)
+# Multi-plant architecture: 10 plants with 1,000 tags each = 10,000 total tags
+# Flexible: Support variable number of pipelines by plant or by tag ranges
+# Examples:
+# - 5 pipelines: Use 5 plants (Sydney, Melbourne, Brisbane, Perth, Adelaide)
+# - 10 pipelines: Use all 10 plants (one per plant)
+# - 15 pipelines: Use 5 plants with 3 pipelines each (split by tag ranges)
+plant_names = ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide",
+               "Darwin", "Hobart", "Canberra", "Newcastle", "Wollongong"]
+units_per_plant = 125  # 125 units per plant (125 × 8 sensors = 1,000 tags per plant)
 
 tag_id = 1
 for plant in plant_names:
