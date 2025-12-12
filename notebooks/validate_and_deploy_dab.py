@@ -265,30 +265,37 @@ print("=" * 80)
 
 # COMMAND ----------
 
-# Uncomment to trigger all deployed pipelines
+# Uncomment to trigger all deployed pipelines with staggered starts
 """
 import time
 
 print("=" * 80)
-print("Starting Pipeline Updates...")
+print("Starting Pipeline Updates (Staggered)...")
 print("=" * 80)
+print("Using 15-second delays between starts to prevent resource contention\n")
 
-for pipeline_name, pipeline_id in deployed_pipelines.items():
+for idx, (pipeline_name, pipeline_id) in enumerate(deployed_pipelines.items(), 1):
     try:
-        print(f"\nStarting: {pipeline_name}")
+        print(f"[{idx}/{len(deployed_pipelines)}] Starting: {pipeline_name}")
         update = w.pipelines.start_update(pipeline_id=pipeline_id)
         print(f"  ✓ Update started: {update.update_id}")
-        time.sleep(2)  # Rate limiting
+
+        # Staggered start: 15 seconds between each pipeline trigger
+        # This prevents all pipelines from competing for resources during initialization
+        if idx < len(deployed_pipelines):
+            print(f"  ⏳ Waiting 15 seconds before starting next pipeline...")
+            time.sleep(15)
     except Exception as e:
         print(f"  ✗ Error: {e}")
 
 print("\n" + "=" * 80)
-print("✓ All pipeline updates triggered")
+print("✓ All pipeline updates triggered with staggered starts")
 print("Monitor progress in the DLT UI")
 print("=" * 80)
 """
 
 print("Uncomment the code in this cell to trigger pipeline updates")
+print("Note: Uses 15-second staggered starts to avoid initialization delays")
 
 # COMMAND ----------
 
