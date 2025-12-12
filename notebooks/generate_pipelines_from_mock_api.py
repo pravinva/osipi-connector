@@ -4,9 +4,9 @@
 # MAGIC
 # MAGIC This notebook:
 # MAGIC 1. Discovers all tags from the mock PI Web API
-# MAGIC 2. Groups tags into pipelines based on load balancing strategy
-# MAGIC 3. Generates CSV config for DAB pipeline generator
-# MAGIC 4. Optionally generates and deploys the DAB YAML
+# MAGIC 2. Assigns priorities based on sensor type (configurable via SENSOR_PRIORITY_MAP)
+# MAGIC 3. Groups tags into pipelines based on load balancing strategy
+# MAGIC 4. Generates DAB YAML files (pipelines.yml, jobs.yml)
 # MAGIC
 # MAGIC **Run this notebook whenever you want to update pipeline configuration**
 
@@ -76,20 +76,33 @@ SCHEDULE_30MIN = "0 */30 * * * ?"  # Every 30 minutes
 SCHEDULE_HOURLY = "0 0 * * * ?"    # Every hour
 DEFAULT_BATCH_SCHEDULE = SCHEDULE_30MIN  # Default for batch pipelines
 
+# ============================================================================
+# PRIORITY CONFIGURATION - Edit these mappings to change tag priorities
+# ============================================================================
+SENSOR_PRIORITY_MAP = {
+    # Sensor Type: (Priority, Schedule)
+    'Temperature': ('high', SCHEDULE_15MIN),
+    'Pressure': ('high', SCHEDULE_15MIN),
+    'Flow': ('medium', SCHEDULE_30MIN),
+    'Level': ('medium', SCHEDULE_30MIN),
+    'Power': ('low', SCHEDULE_HOURLY),
+    'Speed': ('low', SCHEDULE_HOURLY),
+    'Voltage': ('low', SCHEDULE_HOURLY),
+    'Current': ('low', SCHEDULE_HOURLY),
+}
+
+# Default priority for unrecognized sensor types
+DEFAULT_PRIORITY = ('medium', SCHEDULE_30MIN)
+
 # Cluster Configuration
 # All pipelines use serverless compute (no need to configure workers/autoscaling)
 
-# DAB Deployment (CONFIGURABLE)
-AUTO_DEPLOY_DAB = True     # Set to True to automatically deploy after generation
-DAB_TARGET = "dev"         # Target environment: dev, prod
-
 # Output paths
-OUTPUT_CSV = "/Workspace/Users/pravin.varma@databricks.com/osipi_pipeline_config.csv"
-OUTPUT_YAML_DIR = "/Workspace/Users/pravin.varma@databricks.com/dab_resources"
+OUTPUT_YAML_DIR = "/Workspace/Users/pravin.varma@databricks.com/osipi-connector/dab-config"
 
 print(f"Mock API: {MOCK_API_URL}")
 print(f"Target: {TARGET_CATALOG}.{TARGET_SCHEMA}")
-print(f"Output CSV: {OUTPUT_CSV}")
+print(f"Output YAML: {OUTPUT_YAML_DIR}")
 
 # COMMAND ----------
 
@@ -176,25 +189,15 @@ print(tags_df.head(10))
 
 # Extract metadata from tag names (format: Plant_UnitXXX_SensorType_PV)
 def categorize_tag(tag_name):
-    """Categorize tag priority based on sensor type."""
+    """Categorize tag priority based on sensor type using SENSOR_PRIORITY_MAP."""
     parts = tag_name.split('_')
 
     if len(parts) >= 3:
         sensor_type = parts[2]
+        # Look up priority and schedule from configuration map
+        return SENSOR_PRIORITY_MAP.get(sensor_type, DEFAULT_PRIORITY)
 
-        # High priority: Temperature, Pressure (critical safety)
-        if sensor_type in ['Temperature', 'Pressure']:
-            return 'high', SCHEDULE_15MIN
-
-        # Medium priority: Flow, Level
-        elif sensor_type in ['Flow', 'Level']:
-            return 'medium', SCHEDULE_30MIN
-
-        # Low priority: Power, Speed, Voltage
-        else:
-            return 'low', SCHEDULE_HOURLY
-
-    return 'medium', SCHEDULE_30MIN
+    return DEFAULT_PRIORITY
 
 tags_df[['priority', 'schedule']] = tags_df['tag_name'].apply(
     lambda x: pd.Series(categorize_tag(x))
@@ -245,7 +248,7 @@ print(pipeline_dist)
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 4. Generate DAB Configuration CSV
+# MAGIC ## 4. Prepare Configuration for DAB Generation
 
 # COMMAND ----------
 
@@ -257,7 +260,7 @@ config_df['target_catalog'] = TARGET_CATALOG
 config_df['target_schema'] = TARGET_SCHEMA
 config_df['start_time_offset_days'] = 7  # 7 days initial backfill
 
-# Reorder columns to match DAB generator expectations
+# Reorder columns for clarity
 config_df = config_df[[
     'tag_name',
     'tag_webid',
@@ -271,18 +274,11 @@ config_df = config_df[[
     'start_time_offset_days'
 ]]
 
-# Save to Workspace using dbutils
-# Convert pandas DataFrame to CSV string
-csv_content = config_df.to_csv(index=False)
-
-# Write to Workspace using dbutils.fs
-dbutils.fs.put(OUTPUT_CSV, csv_content, overwrite=True)
-
-print(f"✓ Saved configuration to: {OUTPUT_CSV}")
-print(f"\nTotal records: {len(config_df)}")
+print(f"✓ Configuration prepared")
+print(f"\nTotal tags: {len(config_df)}")
 print(f"Pipeline groups: {config_df['pipeline_group'].nunique()}")
-print(f"\nFirst few rows:")
-display(config_df.head(10))
+print(f"\nConfiguration summary:")
+display(config_df.groupby(['pipeline_group', 'priority']).size().reset_index(name='tag_count'))
 
 # COMMAND ----------
 
@@ -462,76 +458,22 @@ print("\n... (truncated)")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 7. Deploy DAB (Optional - Automated)
-
-# COMMAND ----------
-
-if AUTO_DEPLOY_DAB:
-    print("=" * 80)
-    print("Deploying Databricks Asset Bundle...")
-    print("=" * 80)
-
-    # Copy generated YAML files to project deployment/resources directory
-    import shutil
-
-    project_root = "/Workspace/Repos/production/osipi-connector"  # Adjust if needed
-
-    try:
-        # Copy YAML files to project using dbutils
-        dbutils.fs.cp(
-            pipelines_file,
-            f"{project_root}/deployment/resources/pipelines.yml",
-            recurse=False
-        )
-        dbutils.fs.cp(
-            jobs_file,
-            f"{project_root}/deployment/resources/jobs.yml",
-            recurse=False
-        )
-
-        print(f"✓ Copied YAML files to {project_root}/deployment/resources/")
-
-        print("\n" + "=" * 80)
-        print("Next: Validate and Deploy DAB")
-        print("=" * 80)
-        print("\nDatabricks Asset Bundle commands must be run from a terminal with the CLI.")
-        print(f"\nManual deployment steps:")
-        print(f"1. Open a terminal with Databricks CLI configured")
-        print(f"2. Navigate to project: cd {project_root}")
-        print(f"3. Validate bundle: databricks bundle validate -t {DAB_TARGET}")
-        print(f"4. Deploy bundle: databricks bundle deploy -t {DAB_TARGET}")
-        print(f"5. Monitor pipelines in Databricks UI")
-        print("=" * 80)
-
-    except Exception as e:
-        print(f"⚠️  Could not auto-deploy: {e}")
-        print(f"\nManual deployment steps:")
-        print(f"1. Copy YAML files from {OUTPUT_YAML_DIR} to deployment/resources/")
-        print(f"2. Run: databricks bundle validate -t {DAB_TARGET}")
-        print(f"3. Run: databricks bundle deploy -t {DAB_TARGET}")
-
-else:
-    print("\n" + "=" * 80)
-    print("Auto-deployment is DISABLED")
-    print("=" * 80)
-    print(f"To deploy manually:")
-    print(f"1. Copy YAML files to deployment/resources/")
-    print(f"2. Run: databricks bundle validate -t {DAB_TARGET}")
-    print(f"3. Run: databricks bundle deploy -t {DAB_TARGET}")
-    print("=" * 80)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Configuration Summary
+# MAGIC ## Summary
+# MAGIC
+# MAGIC **Generated Files:**
+# MAGIC - `pipelines.yml`: DLT pipeline definitions
+# MAGIC - `jobs.yml`: Scheduled job definitions (batch mode only)
+# MAGIC
+# MAGIC **Next Steps:**
+# MAGIC 1. Use separate notebook to validate and deploy DAB
+# MAGIC 2. Monitor pipeline execution in Databricks UI
 # MAGIC
 # MAGIC **Configurable Parameters:**
 # MAGIC
 # MAGIC ```python
 # MAGIC MAX_TAGS_TO_FETCH = None        # Limit for testing (None = all tags)
-# MAGIC TAGS_PER_PIPELINE = 100         # Tags per pipeline group
-# MAGIC AUTO_DEPLOY_DAB = True          # Auto-deploy after generation
-# MAGIC DAB_TARGET = "dev"              # Target: dev, prod
+# MAGIC TAGS_PER_PIPELINE = 2000        # Tags per pipeline group
+# MAGIC SENSOR_PRIORITY_MAP             # Edit to change sensor priorities
 # MAGIC ```
 # MAGIC
 # MAGIC **Example Configurations:**
