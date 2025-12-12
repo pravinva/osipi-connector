@@ -31,7 +31,7 @@ w = WorkspaceClient()
 
 # Configuration
 DAB_TARGET = "dev"
-YAML_DIR = "/Workspace/Users/pravin.varma@databricks.com/dab_resources"
+YAML_DIR = "/Workspace/Users/pravin.varma@databricks.com/osipi-connector/dab-config"
 PIPELINES_YAML = f"{YAML_DIR}/pipelines.yml"
 JOBS_YAML = f"{YAML_DIR}/jobs.yml"
 
