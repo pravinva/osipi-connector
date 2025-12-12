@@ -436,7 +436,6 @@ print("Pipeline Generation Complete!")
 print("=" * 80)
 print(f"\n✓ Discovered {len(tags_df)} tags from mock API")
 print(f"✓ Created {config_df['pipeline_group'].nunique()} pipeline groups")
-print(f"✓ Generated configuration CSV: {OUTPUT_CSV}")
 print(f"✓ Generated DAB YAML files: {OUTPUT_YAML_DIR}")
 
 print("\n" + "=" * 80)
