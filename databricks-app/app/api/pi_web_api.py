@@ -38,20 +38,20 @@ tag_types = [
     ("Current", "A", 0.0, 100.0, 2.0),
 ]
 
-# Generate tags for 3 plants, 4 units each, multiple sensors
-# Spec requirement: "Add 100 more for realistic testing" (lines 1361)
-plant_names = ["Sydney", "Melbourne", "Brisbane", "Perth"]
-unit_count = 4
+# Multi-plant architecture: 5 plants with 2,000 tags each = 10,000 total tags
+# Each pipeline will handle ONE plant's data (realistic OT architecture)
+plant_names = ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide"]
+units_per_plant = 250  # 250 units per plant (250 × 8 sensors = 2,000 tags per plant)
 
 tag_id = 1
 for plant in plant_names:
-    for unit in range(1, unit_count + 1):
+    for unit in range(1, units_per_plant + 1):
         for sensor_type, units, min_val, max_val, noise in tag_types:
-            tag_webid = f"F1DP-{plant}-U{unit}-{sensor_type[:4]}-{tag_id:04d}"
+            tag_webid = f"F1DP-{plant}-U{unit:03d}-{sensor_type[:4]}-{tag_id:05d}"
             base_value = random.uniform(min_val, max_val)
 
             MOCK_TAGS[tag_webid] = {
-                "name": f"{plant}_Unit{unit}_{sensor_type}_PV",
+                "name": f"{plant}_Unit{unit:03d}_{sensor_type}_PV",
                 "units": units,
                 "base": base_value,
                 "min": min_val,
@@ -61,7 +61,7 @@ for plant in plant_names:
                 "plant": plant,
                 "unit": unit,
                 "descriptor": f"{sensor_type} sensor at {plant} Plant Unit {unit}",
-                "path": f"\\\\{plant}\\Unit{unit}\\{sensor_type}"
+                "path": f"\\\\{plant}_Plant\\Unit_{unit:03d}\\{sensor_type}"
             }
             tag_id += 1
 
@@ -77,7 +77,8 @@ MOCK_AF_HIERARCHY = {
     }
 }
 
-# Build hierarchical structure (4 plants, 4 units per plant, 4 equipment per unit = 64 elements)
+# Build hierarchical structure (5 plants, 50 units per plant, 4 equipment per unit)
+# Limit to first 10 units per plant for AF hierarchy (to keep it manageable)
 for plant in plant_names:
     plant_element = {
         "WebId": f"F1DP-Site-{plant}",
@@ -89,13 +90,14 @@ for plant in plant_names:
         "Elements": []
     }
 
-    for unit in range(1, unit_count + 1):
+    # Only create AF hierarchy for first 10 units (keeps hierarchy size reasonable)
+    for unit in range(1, 11):
         unit_element = {
-            "WebId": f"F1DP-Unit-{plant}-{unit}",
-            "Name": f"Unit_{unit}",
+            "WebId": f"F1DP-Unit-{plant}-{unit:03d}",
+            "Name": f"Unit_{unit:03d}",
             "TemplateName": "ProcessUnitTemplate",
             "Description": f"Processing unit {unit}",
-            "Path": f"\\\\{plant}_Plant\\Unit_{unit}",
+            "Path": f"\\\\{plant}_Plant\\Unit_{unit:03d}",
             "CategoryNames": ["ProcessUnit"],
             "Elements": []
         }
@@ -104,11 +106,11 @@ for plant in plant_names:
         equipment_types = ["Pump", "Compressor", "HeatExchanger", "Reactor"]
         for equip_type in equipment_types:
             equipment = {
-                "WebId": f"F1DP-Equip-{plant}-U{unit}-{equip_type}",
+                "WebId": f"F1DP-Equip-{plant}-U{unit:03d}-{equip_type}",
                 "Name": f"{equip_type}_101",
                 "TemplateName": f"{equip_type}Template",
                 "Description": f"{equip_type} equipment",
-                "Path": f"\\\\{plant}_Plant\\Unit_{unit}\\{equip_type}_101",
+                "Path": f"\\\\{plant}_Plant\\Unit_{unit:03d}\\{equip_type}_101",
                 "CategoryNames": ["Equipment"],
                 "Elements": []
             }
@@ -127,51 +129,53 @@ event_templates = [
     "DowntimeTemplate"
 ]
 
-# Generate 50 event frames over the past month
+# Generate 250 event frames over the past month (50 per plant)
 base_time = datetime.now() - timedelta(days=30)
-for i in range(50):
-    template = random.choice(event_templates)
-    start = base_time + timedelta(hours=random.randint(0, 720))
-    duration = timedelta(minutes=random.randint(30, 240))
+event_id = 1
+for plant in plant_names:
+    for i in range(50):  # 50 events per plant
+        template = random.choice(event_templates)
+        start = base_time + timedelta(hours=random.randint(0, 720))
+        duration = timedelta(minutes=random.randint(30, 240))
 
-    plant = random.choice(plant_names)
-    unit = random.randint(1, unit_count)
+        unit = random.randint(1, 10)  # Reference first 10 units with AF hierarchy
 
-    event = {
-        "WebId": f"F1DP-EF-{i:04d}",
-        "Name": f"{template.replace('Template', '')}_{start.strftime('%Y%m%d_%H%M')}",
-        "TemplateName": template,
-        "StartTime": start.isoformat() + "Z",
-        "EndTime": (start + duration).isoformat() + "Z",
-        "PrimaryReferencedElementWebId": f"F1DP-Unit-{plant}-{unit}",
-        "Description": f"Event on {plant} Unit {unit}",
-        "CategoryNames": [template.replace("Template", "")],
-        "Attributes": {}
-    }
-
-    # Add event-specific attributes
-    if template == "BatchRunTemplate":
-        event["Attributes"] = {
-            "Product": random.choice(["ProductA", "ProductB", "ProductC"]),
-            "BatchID": f"BATCH-{i:05d}",
-            "Operator": random.choice(["Operator1", "Operator2", "Operator3"]),
-            "TargetQuantity": random.randint(1000, 5000),
-            "ActualQuantity": random.randint(950, 5000)
-        }
-    elif template == "AlarmTemplate":
-        event["Attributes"] = {
-            "Priority": random.choice(["High", "Medium", "Low"]),
-            "AlarmType": random.choice(["High Temperature", "Low Pressure", "Equipment Fault"]),
-            "AcknowledgedBy": random.choice(["Operator1", "Operator2", "System"])
-        }
-    elif template == "MaintenanceTemplate":
-        event["Attributes"] = {
-            "MaintenanceType": random.choice(["Preventive", "Corrective", "Inspection"]),
-            "Technician": random.choice(["Tech1", "Tech2", "Tech3"]),
-            "WorkOrder": f"WO-{i:05d}"
+        event = {
+            "WebId": f"F1DP-EF-{plant}-{event_id:05d}",
+            "Name": f"{plant}_{template.replace('Template', '')}_{start.strftime('%Y%m%d_%H%M')}",
+            "TemplateName": template,
+            "StartTime": start.isoformat() + "Z",
+            "EndTime": (start + duration).isoformat() + "Z",
+            "PrimaryReferencedElementWebId": f"F1DP-Unit-{plant}-{unit:03d}",
+            "Description": f"Event on {plant} Unit {unit:03d}",
+            "CategoryNames": [template.replace("Template", "")],
+            "Attributes": {}
         }
 
-    MOCK_EVENT_FRAMES.append(event)
+        # Add event-specific attributes
+        if template == "BatchRunTemplate":
+            event["Attributes"] = {
+                "Product": random.choice(["ProductA", "ProductB", "ProductC"]),
+                "BatchID": f"BATCH-{plant}-{event_id:05d}",
+                "Operator": random.choice(["Operator1", "Operator2", "Operator3"]),
+                "TargetQuantity": random.randint(1000, 5000),
+                "ActualQuantity": random.randint(950, 5000)
+            }
+        elif template == "AlarmTemplate":
+            event["Attributes"] = {
+                "Priority": random.choice(["High", "Medium", "Low"]),
+                "AlarmType": random.choice(["High Temperature", "Low Pressure", "Equipment Fault"]),
+                "AcknowledgedBy": random.choice(["Operator1", "Operator2", "System"])
+            }
+        elif template == "MaintenanceTemplate":
+            event["Attributes"] = {
+                "MaintenanceType": random.choice(["Preventive", "Corrective", "Inspection"]),
+                "Technician": random.choice(["Tech1", "Tech2", "Tech3"]),
+                "WorkOrder": f"WO-{plant}-{event_id:05d}"
+            }
+
+        MOCK_EVENT_FRAMES.append(event)
+        event_id += 1
 
 print(f"Generated {len(MOCK_EVENT_FRAMES)} mock event frames")
 
