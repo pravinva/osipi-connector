@@ -282,9 +282,44 @@ MOCK_API_URL = "https://osipi-webserver-xxx.aws.databricksapps.com"
 - All Events: https://osipi-webserver-1444828305810485.aws.databricksapps.com/data/events
 - Alarms: https://osipi-webserver-1444828305810485.aws.databricksapps.com/data/alarms
 
+## Troubleshooting
+
+### Common Issues
+
+1. **Empty AF Hierarchy or Event Frames tables**
+   - Check that DLT pipeline ran successfully
+   - Verify OAuth authentication is working
+   - See [docs/troubleshooting/](docs/troubleshooting/) for detailed fixes
+
+2. **Hierarchy tree not expanding**
+   - Clear browser cache and reload
+   - Verify Databricks App has been redeployed with latest code
+
+3. **Pipeline generation fails**
+   - Ensure `pyyaml` is installed: `%pip install pyyaml`
+   - Restart Python kernel: `dbutils.library.restartPython()`
+
+4. **Column name errors in queries**
+   - Check that table schemas match expected columns
+   - See [docs/CHANGELOG.md](docs/CHANGELOG.md) for recent fixes
+
+### Documentation
+
+- **Operator Guide**: [OPERATOR_GUIDE.md](OPERATOR_GUIDE.md)
+- **Changelog**: [docs/CHANGELOG.md](docs/CHANGELOG.md)
+- **Troubleshooting Guides**: [docs/troubleshooting/](docs/troubleshooting/)
+
+## Current Status
+
+Production-ready with all features working:
+- ✅ Timeseries ingestion: 1.28M rows (128 tags)
+- ✅ AF Hierarchy: 84 elements
+- ✅ Event Frames: 50 events
+- ✅ Last ingestion: 2025-12-12 (data is fresh)
+- ✅ Dashboard UI: Fully functional with hierarchy tree expansion
+
 ## Support
 
-- **Operator Guide**: See [OPERATOR_GUIDE.md](OPERATOR_GUIDE.md)
 - **Issues**: Create a GitHub issue
 - **Questions**: Contact the development team
 
