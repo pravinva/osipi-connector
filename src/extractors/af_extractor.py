@@ -44,9 +44,12 @@ class AFHierarchyExtractor:
                 self.logger.warning(f"Max depth {max_depth} reached")
                 return
 
-            # Get element details
+            # Get element details (use POST endpoint for Databricks App compatibility)
             try:
-                element_response = self.client.get(f"/piwebapi/elements/{element_webid}")
+                element_response = self.client.post(
+                    "/piwebapi/elements/get",
+                    json={"element_webid": element_webid}
+                )
                 element = element_response.json()
             except Exception as e:
                 self.logger.error(f"Failed to get element {element_webid}: {e}")
@@ -68,10 +71,11 @@ class AFHierarchyExtractor:
                 "depth": depth
             })
 
-            # Get child elements
+            # Get child elements (use POST endpoint for Databricks App compatibility)
             try:
-                children_response = self.client.get(
-                    f"/piwebapi/elements/{element_webid}/elements"
+                children_response = self.client.post(
+                    "/piwebapi/elements/children",
+                    json={"element_webid": element_webid}
                 )
                 children = children_response.json().get("Items", [])
 

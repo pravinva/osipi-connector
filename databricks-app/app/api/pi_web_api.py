@@ -668,6 +668,86 @@ def get_event_frames_post(request: EventFramesRequest):
 
     return {"Items": filtered_events}
 
+# New POST endpoints for AF element traversal (fix for Databricks App auth)
+class ElementRequest(BaseModel):
+    element_webid: str
+
+@app.post("/piwebapi/elements/get")
+def get_element_post(request: ElementRequest):
+    """
+    Get element details by WebId (POST alternative for Databricks App)
+    Works around authentication issues with GET endpoints in Databricks Apps
+    """
+    element_webid = request.element_webid
+
+    # Search in AF hierarchy
+    def find_element(webid: str, hierarchy: Dict) -> Optional[Dict]:
+        """Recursively search for element by WebId"""
+        for db_webid, db_data in hierarchy.items():
+            if db_data.get("WebId") == webid:
+                return db_data
+
+            # Search in elements
+            for plant in db_data.get("Elements", []):
+                if plant.get("WebId") == webid:
+                    return plant
+
+                for unit in plant.get("Elements", []):
+                    if unit.get("WebId") == webid:
+                        return unit
+
+                    for equipment in unit.get("Elements", []):
+                        if equipment.get("WebId") == webid:
+                            return equipment
+
+        return None
+
+    element = find_element(element_webid, MOCK_AF_HIERARCHY)
+
+    if not element:
+        raise HTTPException(status_code=404, detail=f"Element {element_webid} not found")
+
+    return element
+
+@app.post("/piwebapi/elements/children")
+def get_element_children_post(request: ElementRequest):
+    """
+    Get child elements (POST alternative for Databricks App)
+    Works around authentication issues with GET endpoints in Databricks Apps
+    """
+    element_webid = request.element_webid
+
+    # Search in AF hierarchy
+    def find_element(webid: str, hierarchy: Dict) -> Optional[Dict]:
+        """Recursively search for element by WebId"""
+        for db_webid, db_data in hierarchy.items():
+            if db_data.get("WebId") == webid:
+                return db_data
+
+            # Search in elements
+            for plant in db_data.get("Elements", []):
+                if plant.get("WebId") == webid:
+                    return plant
+
+                for unit in plant.get("Elements", []):
+                    if unit.get("WebId") == webid:
+                        return unit
+
+                    for equipment in unit.get("Elements", []):
+                        if equipment.get("WebId") == webid:
+                            return equipment
+
+        return None
+
+    element = find_element(element_webid, MOCK_AF_HIERARCHY)
+
+    if not element:
+        raise HTTPException(status_code=404, detail=f"Element {element_webid} not found")
+
+    # Return child elements
+    children = element.get("Elements", [])
+    return {"Items": children}
+
 @app.get("/health")
 def health_check():
     """Health check endpoint"""
