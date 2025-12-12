@@ -13,7 +13,7 @@
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Configuration
+# MAGIC ## Install Dependencies
 
 # COMMAND ----------
 
@@ -21,15 +21,21 @@
 
 # COMMAND ----------
 
-import requests
-import pandas as pd
-from datetime import datetime
-import os
-
 # Restart Python to pick up new packages
 dbutils.library.restartPython()
 
 # COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Configuration
+
+# COMMAND ----------
+
+# Re-import after restart
+import requests
+import pandas as pd
+from datetime import datetime
+import os
 
 # Mock API Configuration
 MOCK_API_URL = "https://osipi-webserver-1444828305810485.aws.databricksapps.com"
