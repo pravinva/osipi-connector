@@ -94,6 +94,27 @@ SENSOR_PRIORITY_MAP = {
 # Default priority for unrecognized sensor types
 DEFAULT_PRIORITY = ('medium', SCHEDULE_30MIN)
 
+# ============================================================================
+# PLANT SELECTION - Choose which plants to include in pipelines
+# ============================================================================
+# Available plants (10 total) in the mock API
+AVAILABLE_PLANTS = ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide",
+                   "Darwin", "Hobart", "Canberra", "Newcastle", "Wollongong"]
+
+# CONFIGURABLE: Select which plants to use
+# Option 1: Specify exact plants you want (recommended)
+SELECTED_PLANTS = ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide", "Darwin", "Hobart"]  # 7 plants
+
+# Option 2: Auto-select first N plants (comment out SELECTED_PLANTS above and uncomment below)
+# NUM_PIPELINES_DESIRED = 7
+# SELECTED_PLANTS = AVAILABLE_PLANTS[:NUM_PIPELINES_DESIRED]
+
+# Option 3: Use all available plants (10 pipelines)
+# SELECTED_PLANTS = AVAILABLE_PLANTS
+
+# Each selected plant will create ONE pipeline with ~1000 tags
+# Total tags ingested = len(SELECTED_PLANTS) × 1000
+
 # Cluster Configuration
 # All pipelines use serverless compute (no need to configure workers/autoscaling)
 
@@ -103,6 +124,8 @@ OUTPUT_YAML_DIR = "/Workspace/Users/pravin.varma@databricks.com/osipi-connector/
 print(f"Mock API: {MOCK_API_URL}")
 print(f"Target: {TARGET_CATALOG}.{TARGET_SCHEMA}")
 print(f"Output YAML: {OUTPUT_YAML_DIR}")
+print(f"Selected Plants: {len(SELECTED_PLANTS)} → {', '.join(SELECTED_PLANTS)}")
+print(f"Expected Pipelines: {len(SELECTED_PLANTS)} (one per plant)")
 
 # COMMAND ----------
 
@@ -156,23 +179,28 @@ server_name = dataservers[0]["Name"]
 
 print(f"✓ Data Server: {server_name} ({server_webid})")
 
-# Get all PI points
-print("\nFetching PI points...")
-max_count = MAX_TAGS_TO_FETCH if MAX_TAGS_TO_FETCH else 100000
-points_url = f"{MOCK_API_URL}/piwebapi/dataservers/{server_webid}/points?maxCount={max_count}"
-response = requests.get(points_url, headers=headers)
-points = response.json()["Items"]
+# Get PI points filtered by selected plants
+print(f"\nFetching PI points for {len(SELECTED_PLANTS)} selected plants...")
+print("=" * 60)
 
-if MAX_TAGS_TO_FETCH:
-    points = points[:MAX_TAGS_TO_FETCH]
-    print(f"✓ Fetched {len(points)} PI points (limited to {MAX_TAGS_TO_FETCH})\n")
-else:
-    print(f"✓ Found {len(points)} PI points (all available tags)\n")
+all_points = []
+for plant in SELECTED_PLANTS:
+    plant_url = f"{MOCK_API_URL}/piwebapi/dataservers/{server_webid}/points"
+    params = {"nameFilter": f"{plant}_*", "maxCount": 10000}
+    response = requests.get(plant_url, params=params, headers=headers)
+    plant_points = response.json()["Items"]
+    all_points.extend(plant_points)
+    print(f"  ✓ {plant:12s}: {len(plant_points):4d} tags")
 
-# Convert to DataFrame
+points = all_points
+print("=" * 60)
+print(f"✓ Total fetched: {len(points)} PI points from {len(SELECTED_PLANTS)} plants\n")
+
+# Convert to DataFrame with plant information
 tags_df = pd.DataFrame([{
     'tag_name': p['Name'],
     'tag_webid': p['WebId'],
+    'plant': p['Name'].split('_')[0],  # Extract plant from tag name (e.g., "Sydney_Unit001_Temperature_PV" → "Sydney")
     'descriptor': p.get('Descriptor', ''),
     'units': p.get('EngineeringUnits', '')
 } for p in points])
@@ -211,39 +239,33 @@ print(tags_df['schedule'].value_counts())
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 3. Load Balance into Pipeline Groups
+# MAGIC ## 3. Assign Pipeline Groups by Plant
 
 # COMMAND ----------
 
-# Sort by priority (high first) then alphabetically
-tags_df = tags_df.sort_values(['priority', 'tag_name'])
+# Assign pipeline group based on plant
+# Each plant gets its own pipeline group (one-to-one mapping)
+plant_to_group = {plant: idx + 1 for idx, plant in enumerate(SELECTED_PLANTS)}
+tags_df['pipeline_group'] = tags_df['plant'].map(plant_to_group)
 
-# Assign pipeline group (round-robin within each priority)
-pipeline_groups = []
-current_group = 1
-tags_in_current_group = 0
+# Sort by plant and priority for better organization
+tags_df = tags_df.sort_values(['plant', 'priority', 'tag_name'])
 
-for _, row in tags_df.iterrows():
-    pipeline_groups.append(current_group)
-    tags_in_current_group += 1
+print(f"Created {tags_df['pipeline_group'].nunique()} pipeline groups (one per plant)")
+print(f"Average tags per pipeline: {len(tags_df) / tags_df['pipeline_group'].nunique():.1f}")
 
-    if tags_in_current_group >= TAGS_PER_PIPELINE:
-        current_group += 1
-        tags_in_current_group = 0
-
-tags_df['pipeline_group'] = pipeline_groups
-
-print(f"Created {tags_df['pipeline_group'].max()} pipeline groups")
-print(f"Average tags per pipeline: {len(tags_df) / tags_df['pipeline_group'].max():.1f}")
-
-# Show distribution
-print("\nTags per Pipeline Group:")
-pipeline_dist = tags_df.groupby('pipeline_group').agg({
+# Show distribution by plant
+print("\nPipeline Distribution (One Pipeline per Plant):")
+print("=" * 60)
+pipeline_dist = tags_df.groupby(['pipeline_group', 'plant']).agg({
     'tag_webid': 'count',
-    'priority': 'first',
-    'schedule': 'first'
+    'priority': lambda x: x.mode()[0] if len(x.mode()) > 0 else x.iloc[0],  # Most common priority
+    'schedule': lambda x: x.mode()[0] if len(x.mode()) > 0 else x.iloc[0]   # Most common schedule
 }).rename(columns={'tag_webid': 'tag_count'})
-print(pipeline_dist)
+
+for (group_id, plant), row in pipeline_dist.iterrows():
+    print(f"Pipeline {group_id} ({plant:12s}): {row['tag_count']:4d} tags | Priority: {row['priority']:6s} | Schedule: {row['schedule']}")
+print("=" * 60)
 
 # COMMAND ----------
 
