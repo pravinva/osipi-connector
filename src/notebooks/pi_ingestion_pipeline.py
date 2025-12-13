@@ -92,38 +92,8 @@ else:
 # if auth type is 'oauth', use the provided headers instead of basic auth
 
 # COMMAND ----------
-# Define DLT streaming tables for PI Web API data
-# Using append mode to allow multiple pipelines to write to the same tables
-
-@dlt.view(
-    name="pi_timeseries_raw"
-)
-def pi_timeseries_raw():
-    """
-    Raw streaming view for PI time-series data.
-    Multiple pipelines can read from this view and append to the bronze table.
-    """
-    from datetime import datetime, timedelta
-    from pyspark.sql.functions import col, current_timestamp
-
-    # Always fetch last 7 days (overlapping for safety)
-    start_time = datetime.now() - timedelta(days=7)
-    end_time = datetime.now()
-
-    # Update config
-    extraction_config = config.copy()
-    extraction_config['start_time'] = start_time
-    extraction_config['end_time'] = end_time
-
-    # Extract data
-    connector = PILakeflowConnector(extraction_config)
-    df = connector.extract_timeseries_to_df()
-
-    # Add metadata
-    df = df.withColumn("partition_date", col("timestamp").cast("date"))
-    df = df.withColumn("ingestion_timestamp", current_timestamp())
-
-    return df
+# Define DLT tables for PI Web API data
+# Multiple pipelines can append to the same tables concurrently
 
 @dlt.table(
     name="pi_timeseries",
@@ -137,36 +107,34 @@ def pi_timeseries_raw():
 def pi_timeseries():
     """
     Bronze table for raw PI time-series data.
-
-    Uses streaming append mode to allow multiple pipelines to write concurrently.
-    Deduplication happens via merge keys at read time in silver layer.
+    Multiple pipelines append concurrently without ownership conflicts.
+    Deduplication happens via MERGE at read time in silver layer.
     """
-    return (
-        dlt.read_stream("pi_timeseries_raw")
-        .dropDuplicates(["tag_webid", "timestamp"])  # Dedupe within each batch
+    from datetime import datetime, timedelta
+    from pyspark.sql.functions import col, current_timestamp
+
+    # Always fetch last 7 days (overlapping window for safety)
+    start_time = datetime.now() - timedelta(days=7)
+    end_time = datetime.now()
+
+    # Update config
+    extraction_config = config.copy()
+    extraction_config['start_time'] = start_time
+    extraction_config['end_time'] = end_time
+
+    # Extract data
+    connector = PILakeflowConnector(extraction_config)
+    df = connector.extract_timeseries_to_df()
+
+    # Add metadata and return
+    return (df
+        .withColumn("partition_date", col("timestamp").cast("date"))
+        .withColumn("ingestion_timestamp", current_timestamp())
+        .dropDuplicates(["tag_webid", "timestamp"])  # Dedupe within batch
     )
 
 # COMMAND ----------
 # AF Hierarchy Table
-
-@dlt.view(
-    name="pi_af_hierarchy_raw"
-)
-def pi_af_hierarchy_raw():
-    """
-    Raw view for AF (Asset Framework) hierarchy.
-    Multiple pipelines can read from this and append to bronze table.
-    """
-    from pyspark.sql.functions import current_timestamp
-
-    # Use connector to extract AF hierarchy
-    connector = PILakeflowConnector(config)
-    df = connector.extract_af_hierarchy_to_df()
-
-    # Add ingestion timestamp
-    df = df.withColumn("ingestion_timestamp", current_timestamp())
-
-    return df
 
 @dlt.table(
     name="pi_af_hierarchy",
@@ -179,43 +147,23 @@ def pi_af_hierarchy_raw():
 def pi_af_hierarchy():
     """
     Bronze table for AF (Asset Framework) hierarchy.
-
-    Uses streaming append mode to allow multiple pipelines to write concurrently.
+    Multiple pipelines append concurrently without ownership conflicts.
     Each pipeline contributes hierarchy for its plant's tags.
     """
-    return (
-        dlt.read_stream("pi_af_hierarchy_raw")
-        .dropDuplicates(["element_webid"])  # Dedupe within each batch
+    from pyspark.sql.functions import current_timestamp
+
+    # Use connector to extract AF hierarchy
+    connector = PILakeflowConnector(config)
+    df = connector.extract_af_hierarchy_to_df()
+
+    # Add ingestion timestamp and return
+    return (df
+        .withColumn("ingestion_timestamp", current_timestamp())
+        .dropDuplicates(["element_webid"])  # Dedupe within batch
     )
 
 # COMMAND ----------
 # Event Frames Table
-
-@dlt.view(
-    name="pi_event_frames_raw"
-)
-def pi_event_frames_raw():
-    """
-    Raw view for Event Frames (alarms, events, batch runs).
-    Multiple pipelines can read from this and append to bronze table.
-    """
-    from pyspark.sql.functions import col, current_timestamp
-    from datetime import datetime, timedelta
-
-    # Set time range for connector (last 30 days)
-    event_config = config.copy()
-    event_config['start_time'] = datetime.now() - timedelta(days=30)
-    event_config['end_time'] = datetime.now()
-
-    # Use connector to extract event frames
-    connector = PILakeflowConnector(event_config)
-    df = connector.extract_event_frames_to_df()
-
-    # Add ingestion timestamp and partition date
-    df = df.withColumn("ingestion_timestamp", current_timestamp())
-    df = df.withColumn("partition_date", col("start_time").cast("date"))
-
-    return df
 
 @dlt.table(
     name="pi_event_frames",
@@ -229,11 +177,24 @@ def pi_event_frames_raw():
 def pi_event_frames():
     """
     Bronze table for Event Frames (alarms, events, batch runs).
-
-    Uses streaming append mode to allow multiple pipelines to write concurrently.
+    Multiple pipelines append concurrently without ownership conflicts.
     Each pipeline contributes events for its plant's tags.
     """
-    return (
-        dlt.read_stream("pi_event_frames_raw")
-        .dropDuplicates(["webid", "start_time"])  # Dedupe within each batch
+    from pyspark.sql.functions import col, current_timestamp
+    from datetime import datetime, timedelta
+
+    # Set time range for connector (last 30 days)
+    event_config = config.copy()
+    event_config['start_time'] = datetime.now() - timedelta(days=30)
+    event_config['end_time'] = datetime.now()
+
+    # Use connector to extract event frames
+    connector = PILakeflowConnector(event_config)
+    df = connector.extract_event_frames_to_df()
+
+    # Add metadata and return
+    return (df
+        .withColumn("ingestion_timestamp", current_timestamp())
+        .withColumn("partition_date", col("start_time").cast("date"))
+        .dropDuplicates(["webid", "start_time"])  # Dedupe within batch
     )
