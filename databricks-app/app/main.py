@@ -602,12 +602,16 @@ async def get_af_hierarchy_stats() -> Dict[str, Any]:
     """Get AF hierarchy statistics from all per-pipeline AF hierarchy tables."""
 
     # Query AF hierarchy data using UNION ALL pattern
+    # Use template_name to identify element types:
+    # - Plants: depth=0 or template_name='PlantTemplate'
+    # - Units: depth=1 or template_name like '%Unit%'
+    # - Equipment: depth>=2 or template_name like '%Equipment%' or '%Compressor%' etc.
     query = build_union_query(
         table_pattern="pi_af_hierarchy",
         select_columns="""COUNT(*) as total_elements,
-            SUM(CASE WHEN element_type = 'Plant' THEN 1 ELSE 0 END) as plants,
-            SUM(CASE WHEN element_type = 'Unit' THEN 1 ELSE 0 END) as units,
-            SUM(CASE WHEN element_type = 'Equipment' THEN 1 ELSE 0 END) as equipment"""
+            SUM(CASE WHEN depth = 0 OR template_name = 'PlantTemplate' THEN 1 ELSE 0 END) as plants,
+            SUM(CASE WHEN depth = 1 OR template_name LIKE '%Unit%' THEN 1 ELSE 0 END) as units,
+            SUM(CASE WHEN depth >= 2 OR template_name LIKE '%Equipment%' OR template_name LIKE '%Compressor%' THEN 1 ELSE 0 END) as equipment"""
     )
 
     results = execute_sql(query)

@@ -221,13 +221,18 @@
 
         async function loadHierarchy() {
             try {
-                const response = await fetch('/api/data/af_hierarchy?limit=100000');
-                const result = await response.json();
+                // Fetch hierarchy data for tree rendering
+                const dataResponse = await fetch('/api/data/af_hierarchy?limit=100000');
+                const dataResult = await dataResponse.json();
 
-                if (result.data && result.data.length > 0) {
-                    hierarchyData = result.data;
-                    updateStats(result.data);
-                    renderTree(result.data);
+                // Fetch stats from dedicated endpoint
+                const statsResponse = await fetch('/api/ingestion/af-hierarchy');
+                const stats = await statsResponse.json();
+
+                if (dataResult.data && dataResult.data.length > 0) {
+                    hierarchyData = dataResult.data;
+                    updateStats(stats);
+                    renderTree(dataResult.data);
                 } else {
                     document.getElementById('tree-container').innerHTML =
                         '<div class="error">No AF hierarchy data found. Please run ingestion first.</div>';
@@ -239,18 +244,11 @@
             }
         }
 
-        function updateStats(data) {
-            document.getElementById('total-elements').textContent = data.length;
-
-            const types = data.reduce((acc, item) => {
-                const type = item.equipment_type || 'Unknown';
-                acc[type] = (acc[type] || 0) + 1;
-                return acc;
-            }, {});
-
-            document.getElementById('plant-count').textContent = types.Plant || 0;
-            document.getElementById('unit-count').textContent = types.Unit || 0;
-            document.getElementById('equipment-count').textContent = types.Equipment || 0;
+        function updateStats(stats) {
+            document.getElementById('total-elements').textContent = stats.total_elements || 0;
+            document.getElementById('plant-count').textContent = stats.plants || 0;
+            document.getElementById('unit-count').textContent = stats.units || 0;
+            document.getElementById('equipment-count').textContent = stats.equipment || 0;
         }
 
         function renderTree(data) {
