@@ -27,6 +27,11 @@ target_catalog = spark.conf.get('pi.target.catalog')
 target_schema = spark.conf.get('pi.target.schema')
 start_time_offset_days = int(spark.conf.get('pi.start_time_offset_days', '30'))
 
+# NEW: Get pipeline identifier for multi-pipeline architecture
+# Each pipeline writes to its own tables (e.g., pi_timeseries_pipeline1, pi_timeseries_pipeline2)
+# Silver layer merges and deduplicates data from all pipeline-specific bronze tables
+pipeline_id = spark.conf.get('pi.pipeline.id', '1')
+
 # Detect authentication type based on connection name
 # For mock_pi_connection (Databricks App), use OAuth M2M
 # For real PI servers, use basic auth from connection-specific scope
@@ -96,8 +101,8 @@ else:
 # Multiple pipelines can append to the same tables concurrently
 
 @dlt.table(
-    name="pi_timeseries",
-    comment="PI Web API time-series data - multiple pipelines append concurrently",
+    name=f"pi_timeseries_pipeline{pipeline_id}",
+    comment=f"PI Web API time-series data from pipeline {pipeline_id} - per-pipeline bronze table",
     table_properties={
         "quality": "bronze",
         "delta.enableChangeDataFeed": "true"
@@ -137,8 +142,8 @@ def pi_timeseries():
 # AF Hierarchy Table
 
 @dlt.table(
-    name="pi_af_hierarchy",
-    comment="PI Asset Framework hierarchy - multiple pipelines append concurrently",
+    name=f"pi_af_hierarchy_pipeline{pipeline_id}",
+    comment=f"PI Asset Framework hierarchy from pipeline {pipeline_id} - per-pipeline bronze table",
     table_properties={
         "quality": "bronze",
         "delta.enableChangeDataFeed": "true"
@@ -166,8 +171,8 @@ def pi_af_hierarchy():
 # Event Frames Table
 
 @dlt.table(
-    name="pi_event_frames",
-    comment="PI Event Frames - multiple pipelines append concurrently",
+    name=f"pi_event_frames_pipeline{pipeline_id}",
+    comment=f"PI Event Frames from pipeline {pipeline_id} - per-pipeline bronze table",
     table_properties={
         "quality": "bronze",
         "delta.enableChangeDataFeed": "true"
