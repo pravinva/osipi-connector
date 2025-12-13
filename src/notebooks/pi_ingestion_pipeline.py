@@ -159,7 +159,7 @@ def pi_af_hierarchy():
     # Add ingestion timestamp and return
     return (df
         .withColumn("ingestion_timestamp", current_timestamp())
-        .dropDuplicates(["element_webid"])  # Dedupe within batch
+        .dropDuplicates(["element_id"])  # Dedupe within batch
     )
 
 # COMMAND ----------
@@ -196,5 +196,5 @@ def pi_event_frames():
     return (df
         .withColumn("ingestion_timestamp", current_timestamp())
         .withColumn("partition_date", col("start_time").cast("date"))
-        .dropDuplicates(["webid", "start_time"])  # Dedupe within batch
+        .dropDuplicates(["event_frame_id", "start_time"])  # Dedupe within batch
     )
