@@ -597,6 +597,38 @@ async def get_alarms() -> Dict[str, Any]:
     }
 
 
+@app.get("/api/ingestion/af-hierarchy")
+async def get_af_hierarchy_stats() -> Dict[str, Any]:
+    """Get AF hierarchy statistics from all per-pipeline AF hierarchy tables."""
+
+    # Query AF hierarchy data using UNION ALL pattern
+    query = build_union_query(
+        table_pattern="pi_af_hierarchy",
+        select_columns="""COUNT(*) as total_elements,
+            SUM(CASE WHEN element_type = 'Plant' THEN 1 ELSE 0 END) as plants,
+            SUM(CASE WHEN element_type = 'Unit' THEN 1 ELSE 0 END) as units,
+            SUM(CASE WHEN element_type = 'Equipment' THEN 1 ELSE 0 END) as equipment"""
+    )
+
+    results = execute_sql(query)
+
+    if results and len(results) > 0:
+        row = results[0]
+        return {
+            "total_elements": int(row.get('total_elements', 0)),
+            "plants": int(row.get('plants', 0)),
+            "units": int(row.get('units', 0)),
+            "equipment": int(row.get('equipment', 0))
+        }
+
+    return {
+        "total_elements": 0,
+        "plants": 0,
+        "units": 0,
+        "equipment": 0
+    }
+
+
 @app.get("/api/data/af_hierarchy")
 async def get_af_hierarchy_data(limit: int = 100000) -> Dict[str, Any]:
     """Get AF hierarchy data from all per-pipeline bronze tables."""
