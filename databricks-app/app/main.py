@@ -96,6 +96,102 @@ def execute_sql(query: str) -> List[Dict]:
         return []
 
 
+def get_pipeline_tables(table_pattern: str) -> List[str]:
+    """
+    Dynamically discover all per-pipeline bronze tables matching the pattern.
+
+    Args:
+        table_pattern: Base table name (e.g., 'pi_timeseries', 'pi_af_hierarchy', 'pi_event_frames')
+
+    Returns:
+        List of full table names (e.g., ['pi_timeseries_pipeline1', 'pi_timeseries_pipeline2', ...])
+    """
+    try:
+        # Query INFORMATION_SCHEMA to find all tables matching pattern
+        query = f"""
+            SELECT table_name
+            FROM {UC_CATALOG}.information_schema.tables
+            WHERE table_schema = '{UC_SCHEMA}'
+              AND table_name LIKE '{table_pattern}_pipeline%'
+            ORDER BY table_name
+        """
+
+        results = execute_sql(query)
+        table_names = [row['table_name'] for row in results]
+
+        if table_names:
+            print(f"✓ Found {len(table_names)} tables for pattern '{table_pattern}': {table_names}")
+        else:
+            print(f"⚠️  No tables found for pattern '{table_pattern}' - may need to check if pipelines have run")
+
+        return table_names
+
+    except Exception as e:
+        print(f"❌ Error discovering pipeline tables: {e}")
+        return []
+
+
+def build_union_query(table_pattern: str, select_columns: str, where_clause: str = "",
+                      group_by: str = "", order_by: str = "", limit: int = None) -> str:
+    """
+    Build a UNION ALL query across all per-pipeline bronze tables.
+
+    Args:
+        table_pattern: Base table name (e.g., 'pi_timeseries')
+        select_columns: Columns to select (e.g., 'COUNT(*) as total, MAX(ingestion_timestamp) as last_run')
+        where_clause: Optional WHERE clause (without 'WHERE' keyword)
+        group_by: Optional GROUP BY clause (without 'GROUP BY' keyword)
+        order_by: Optional ORDER BY clause (without 'ORDER BY' keyword)
+        limit: Optional LIMIT value
+
+    Returns:
+        Complete SQL query with UNION ALL across all pipelines
+    """
+    pipeline_tables = get_pipeline_tables(table_pattern)
+
+    if not pipeline_tables:
+        # Return empty result query if no tables exist
+        return f"SELECT {select_columns}, '' as source_pipeline WHERE 1=0"
+
+    # Build UNION ALL query
+    union_parts = []
+    for i, table_name in enumerate(pipeline_tables, 1):
+        # Extract pipeline number from table name (e.g., 'pi_timeseries_pipeline1' -> '1')
+        pipeline_num = table_name.split('_pipeline')[-1] if '_pipeline' in table_name else str(i)
+
+        query_part = f"""
+        SELECT {select_columns}, '{pipeline_num}' as source_pipeline
+        FROM {UC_CATALOG}.{UC_SCHEMA}.{table_name}
+        """
+
+        if where_clause:
+            query_part += f" WHERE {where_clause}"
+
+        # Add GROUP BY inside each UNION part if provided
+        if group_by:
+            query_part += f" GROUP BY {group_by}"
+
+        union_parts.append(query_part.strip())
+
+    # Join all parts with UNION ALL
+    full_query = " UNION ALL ".join(union_parts)
+
+    # Wrap in subquery if we have ORDER BY or LIMIT (not GROUP BY, as it's already applied)
+    if order_by or limit:
+        full_query = f"SELECT * FROM ({full_query}) combined"
+
+        if order_by:
+            full_query += f" ORDER BY {order_by}"
+
+        if limit:
+            full_query += f" LIMIT {limit}"
+
+    # Log the generated query for debugging
+    print(f"\n[DEBUG] Generated SQL Query:\n{full_query}\n")
+
+    return full_query
+
+
 # ============================================================================
 # UI ROUTES - Landing Page and Dashboard
 # ============================================================================
@@ -260,68 +356,73 @@ async def alarms_page(request: Request):
 
 @app.get("/api/ingestion/status")
 async def get_ingestion_status() -> Dict[str, Any]:
-    """Get current ingestion status and KPIs from osipi.bronze tables."""
+    """Get current ingestion status and KPIs from all per-pipeline bronze tables."""
 
-    # Query actual data from Unity Catalog
-    # Show ALL data (no date filter) to ensure dashboard displays ingested data
-    timeseries_stats = execute_sql(f"""
-        SELECT
-            COUNT(*) as total_rows_today,
-            COUNT(DISTINCT tag_webid) as tags_ingested,
-            MAX(ingestion_timestamp) as last_run
-        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries
-    """)
+    # Query actual data from Unity Catalog across ALL per-pipeline tables
+    # Build UNION ALL query for timeseries
+    timeseries_query = build_union_query(
+        table_pattern="pi_timeseries",
+        select_columns="COUNT(*) as total_rows, COUNT(DISTINCT tag_webid) as tags, MAX(ingestion_timestamp) as last_run"
+    )
 
-    event_frames_count = execute_sql(f"""
-        SELECT COUNT(*) as count
-        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_event_frames
-    """)
+    event_frames_query = build_union_query(
+        table_pattern="pi_event_frames",
+        select_columns="COUNT(*) as count"
+    )
 
-    af_elements_count = execute_sql(f"""
-        SELECT COUNT(DISTINCT element_id) as count
-        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_af_hierarchy
-    """)
+    af_hierarchy_query = build_union_query(
+        table_pattern="pi_af_hierarchy",
+        select_columns="COUNT(DISTINCT element_id) as count"
+    )
+
+    # Execute queries
+    timeseries_stats = execute_sql(timeseries_query)
+    event_frames_count = execute_sql(event_frames_query)
+    af_elements_count = execute_sql(af_hierarchy_query)
 
     # Extract values with fallback to 0
     stats = timeseries_stats[0] if timeseries_stats else {}
-    total_rows = int(stats.get('total_rows_today', 0))
-    tags = int(stats.get('tags_ingested', 0))
+    total_rows = int(stats.get('total_rows', 0))
+    tags = int(stats.get('tags', 0))
     last_run = stats.get('last_run') if stats.get('last_run') else datetime.utcnow().isoformat() + "Z"
 
     event_frames = int(event_frames_count[0].get('count', 0)) if event_frames_count else 0
     af_elements = int(af_elements_count[0].get('count', 0)) if af_elements_count else 0
 
+    # Count how many pipelines are active
+    pipeline_tables = get_pipeline_tables("pi_timeseries")
+    active_pipelines = len(pipeline_tables)
+
     return {
         "status": "Healthy" if total_rows > 0 else "No Data",
         "last_run": last_run,
         "next_run": (datetime.utcnow() + timedelta(minutes=15)).isoformat() + "Z",
-        "rows_loaded_last_hour": total_rows,  # Simplified: showing today's data
+        "rows_loaded_last_hour": total_rows,  # Simplified: showing all data
         "total_rows_today": total_rows,
         "tags_ingested": tags,
         "event_frames_ingested": event_frames,
         "af_elements_indexed": af_elements,
         "data_quality_score": 100 if total_rows > 0 else 0,
         "avg_latency_seconds": 0.0,
-        "pipeline_groups": 1,
-        "active_pipelines": 1 if total_rows > 0 else 0
+        "pipeline_groups": active_pipelines,  # Number of discovered pipelines
+        "active_pipelines": active_pipelines  # All pipelines are active if tables exist
     }
 
 
 @app.get("/api/ingestion/timeseries")
 async def get_ingestion_timeseries() -> Dict[str, List]:
-    """Get time-series metrics for charts from osipi.bronze tables."""
+    """Get time-series metrics for charts from all per-pipeline bronze tables."""
 
-    # Query actual ingestion rate (all data, no time filter)
-    # Group by hour to show ingestion patterns
-    results = execute_sql(f"""
-        SELECT
-            DATE_TRUNC('hour', ingestion_timestamp) as ts,
-            COUNT(*) as row_count
-        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries
-        GROUP BY DATE_TRUNC('hour', ingestion_timestamp)
-        ORDER BY ts DESC
-        LIMIT 24
-    """)
+    # Build UNION ALL query across all pipelines
+    query = build_union_query(
+        table_pattern="pi_timeseries",
+        select_columns="DATE_TRUNC('hour', ingestion_timestamp) as ts, COUNT(*) as row_count",
+        group_by="ts",
+        order_by="ts DESC",
+        limit=24
+    )
+
+    results = execute_sql(query)
 
     timestamps = []
     rows_per_minute = []
@@ -332,9 +433,6 @@ async def get_ingestion_timeseries() -> Dict[str, List]:
             if ts:
                 timestamps.append(ts.strftime("%H:%M") if hasattr(ts, 'strftime') else str(ts)[-5:])
                 rows_per_minute.append(int(row.get('row_count', 0)))
-    else:
-        # No data yet - return empty arrays
-        pass
 
     return {
         "timestamps": timestamps,
@@ -345,19 +443,19 @@ async def get_ingestion_timeseries() -> Dict[str, List]:
 
 @app.get("/api/ingestion/tags")
 async def get_tags_by_plant() -> Dict[str, List]:
-    """Get tag distribution by plant/site from osipi.bronze tables."""
+    """Get tag distribution by plant/site from all per-pipeline bronze tables."""
 
-    # Extract plant names from element_name (e.g., "Sydney_Plant" -> "Sydney")
-    results = execute_sql(f"""
-        SELECT
-            SPLIT(element_name, '_')[0] as plant,
-            COUNT(DISTINCT element_id) as tag_count
-        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_af_hierarchy
-        WHERE depth = 0 AND element_name LIKE '%_Plant'
-        GROUP BY SPLIT(element_name, '_')[0]
-        ORDER BY tag_count DESC
-        LIMIT 10
-    """)
+    # Build UNION ALL query across all AF hierarchy tables
+    query = build_union_query(
+        table_pattern="pi_af_hierarchy",
+        select_columns="SPLIT(element_name, '_')[0] as plant, COUNT(DISTINCT element_id) as tag_count",
+        where_clause="depth = 0 AND element_name LIKE '%_Plant'",
+        group_by="plant",
+        order_by="tag_count DESC",
+        limit=10
+    )
+
+    results = execute_sql(query)
 
     plants = []
     tag_counts = []
@@ -376,34 +474,48 @@ async def get_tags_by_plant() -> Dict[str, List]:
 
 @app.get("/api/ingestion/pipeline_health")
 async def get_pipeline_health() -> List[Dict[str, Any]]:
-    """Get health status of ingestion pipeline from osipi.bronze tables."""
+    """Get health status of ALL ingestion pipelines from per-pipeline bronze tables."""
 
-    # Check last ingestion time and row count
-    result = execute_sql(f"""
-        SELECT
-            MAX(ingestion_timestamp) as last_run,
-            COUNT(*) as row_count,
-            COUNT(DISTINCT tag_webid) as tag_count
-        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries
-    """)
+    # Get all pipeline tables
+    pipeline_tables = get_pipeline_tables("pi_timeseries")
 
-    if result and result[0]:
-        stats = result[0]
-        last_run = stats.get('last_run')
-        row_count = int(stats.get('row_count', 0))
-        tag_count = int(stats.get('tag_count', 0))
+    if not pipeline_tables:
+        return []
 
-        return [{
-            "pipeline_id": 1,
-            "name": "PI Timeseries Ingestion",
-            "status": "Healthy" if row_count > 0 else "No Data",
-            "last_run": last_run if last_run else datetime.utcnow().isoformat() + "Z",
-            "tags": tag_count,
-            "avg_duration_seconds": 0.0,
-            "success_rate": 100.0 if row_count > 0 else 0.0
-        }]
+    pipeline_health = []
 
-    return []
+    # Query each pipeline individually to show per-pipeline health
+    for table_name in pipeline_tables:
+        # Extract pipeline number from table name
+        pipeline_num = table_name.split('_pipeline')[-1] if '_pipeline' in table_name else "unknown"
+
+        query = f"""
+            SELECT
+                MAX(ingestion_timestamp) as last_run,
+                COUNT(*) as row_count,
+                COUNT(DISTINCT tag_webid) as tag_count
+            FROM {UC_CATALOG}.{UC_SCHEMA}.{table_name}
+        """
+
+        result = execute_sql(query)
+
+        if result and result[0]:
+            stats = result[0]
+            last_run = stats.get('last_run')
+            row_count = int(stats.get('row_count', 0))
+            tag_count = int(stats.get('tag_count', 0))
+
+            pipeline_health.append({
+                "pipeline_id": int(pipeline_num) if pipeline_num.isdigit() else 0,
+                "name": f"PI Pipeline {pipeline_num}",
+                "status": "Healthy" if row_count > 0 else "No Data",
+                "last_run": last_run if last_run else datetime.utcnow().isoformat() + "Z",
+                "tags": tag_count,
+                "avg_duration_seconds": 0.0,
+                "success_rate": 100.0 if row_count > 0 else 0.0
+            })
+
+    return sorted(pipeline_health, key=lambda x: x["pipeline_id"])
 
 
 @app.get("/api/ingestion/recent_events")
@@ -456,20 +568,21 @@ async def get_recent_events() -> List[Dict[str, Any]]:
 
 @app.get("/api/data/af_hierarchy")
 async def get_af_hierarchy_data(limit: int = 100000) -> Dict[str, Any]:
-    """Get AF hierarchy data from Unity Catalog."""
-    results = execute_sql(f"""
-        SELECT
-            element_name as name,
+    """Get AF hierarchy data from all per-pipeline bronze tables."""
+    query = build_union_query(
+        table_pattern="pi_af_hierarchy",
+        select_columns="""element_name as name,
             element_type as equipment_type,
             template_name,
             element_path as path,
             description,
             SPLIT(element_name, '_')[0] as plant,
-            element_id as webid
-        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_af_hierarchy
-        ORDER BY element_path
-        LIMIT {limit}
-    """)
+            element_id as webid""",
+        order_by="path",
+        limit=limit
+    )
+
+    results = execute_sql(query)
 
     return {
         "data": results if results else [],
@@ -479,19 +592,20 @@ async def get_af_hierarchy_data(limit: int = 100000) -> Dict[str, Any]:
 
 @app.get("/api/data/event_frames")
 async def get_event_frames_data(limit: int = 100) -> Dict[str, Any]:
-    """Get event frames data from Unity Catalog."""
-    results = execute_sql(f"""
-        SELECT
-            event_name as name,
+    """Get event frames data from all per-pipeline bronze tables."""
+    query = build_union_query(
+        table_pattern="pi_event_frames",
+        select_columns="""event_name as name,
             template_name,
             start_time,
             end_time,
             event_attributes as attributes,
-            primary_element_id as primary_referenced_element_webid
-        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_event_frames
-        ORDER BY start_time DESC
-        LIMIT {limit}
-    """)
+            primary_element_id as primary_referenced_element_webid""",
+        order_by="start_time DESC",
+        limit=limit
+    )
+
+    results = execute_sql(query)
 
     return {
         "data": results if results else [],
@@ -501,18 +615,19 @@ async def get_event_frames_data(limit: int = 100) -> Dict[str, Any]:
 
 @app.get("/api/data/timeseries")
 async def get_timeseries_data(limit: int = 100) -> Dict[str, Any]:
-    """Get timeseries data from Unity Catalog."""
-    results = execute_sql(f"""
-        SELECT
-            tag_webid as tag_name,
+    """Get timeseries data from all per-pipeline bronze tables."""
+    query = build_union_query(
+        table_pattern="pi_timeseries",
+        select_columns="""tag_webid as tag_name,
             timestamp,
             value,
             units,
-            ingestion_timestamp
-        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_timeseries
-        ORDER BY timestamp DESC
-        LIMIT {limit}
-    """)
+            ingestion_timestamp""",
+        order_by="timestamp DESC",
+        limit=limit
+    )
+
+    results = execute_sql(query)
 
     return {
         "data": results if results else [],

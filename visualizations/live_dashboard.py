@@ -60,17 +60,44 @@ class LiveDashboard:
         self.late_data_pct = deque(maxlen=50)
         self.tag_count = 0
         self.elements_count = 0
+        self.event_frames_count = 0
+        self.pipeline_stats = {}  # Track contribution from each pipeline
 
     def fetch_af_hierarchy(self) -> Dict[str, Any]:
-        """Fetch REAL AF hierarchy from osipi.bronze.pi_af_hierarchy Delta table"""
+        """Fetch REAL AF hierarchy from ALL per-pipeline bronze tables"""
         try:
-            # Query Delta table for AF hierarchy
+            # Query ALL pi_af_hierarchy_pipeline* tables using UNION
+            # Multi-pipeline architecture: each pipeline writes to separate table
             result = self.workspace_client.statement_execution.execute_statement(
                 warehouse_id=self.warehouse_id,
                 statement=f"""
                     SELECT element_id, element_name, element_path, parent_id,
                            element_type, template_name, depth
-                    FROM {self.catalog}.{self.schema}.pi_af_hierarchy
+                    FROM {self.catalog}.{self.schema}.pi_af_hierarchy_pipeline1
+                    UNION ALL
+                    SELECT element_id, element_name, element_path, parent_id,
+                           element_type, template_name, depth
+                    FROM {self.catalog}.{self.schema}.pi_af_hierarchy_pipeline2
+                    UNION ALL
+                    SELECT element_id, element_name, element_path, parent_id,
+                           element_type, template_name, depth
+                    FROM {self.catalog}.{self.schema}.pi_af_hierarchy_pipeline3
+                    UNION ALL
+                    SELECT element_id, element_name, element_path, parent_id,
+                           element_type, template_name, depth
+                    FROM {self.catalog}.{self.schema}.pi_af_hierarchy_pipeline4
+                    UNION ALL
+                    SELECT element_id, element_name, element_path, parent_id,
+                           element_type, template_name, depth
+                    FROM {self.catalog}.{self.schema}.pi_af_hierarchy_pipeline5
+                    UNION ALL
+                    SELECT element_id, element_name, element_path, parent_id,
+                           element_type, template_name, depth
+                    FROM {self.catalog}.{self.schema}.pi_af_hierarchy_pipeline6
+                    UNION ALL
+                    SELECT element_id, element_name, element_path, parent_id,
+                           element_type, template_name, depth
+                    FROM {self.catalog}.{self.schema}.pi_af_hierarchy_pipeline7
                     ORDER BY depth, element_name
                     LIMIT 100
                 """,
@@ -95,18 +122,36 @@ class LiveDashboard:
             return {'Items': items}
 
         except Exception as e:
-            print(f"Warning: Could not fetch AF hierarchy from Delta table: {e}")
+            print(f"Warning: Could not fetch AF hierarchy from Delta tables: {e}")
             return {'Items': []}
 
     def fetch_tag_list(self) -> List[Dict[str, Any]]:
-        """Fetch REAL tag list from osipi.bronze.pi_timeseries Delta table"""
+        """Fetch REAL tag list from ALL per-pipeline bronze tables"""
         try:
-            # Query Delta table for distinct tags
+            # Query ALL pi_timeseries_pipeline* tables using UNION
             result = self.workspace_client.statement_execution.execute_statement(
                 warehouse_id=self.warehouse_id,
                 statement=f"""
                     SELECT DISTINCT tag_webid
-                    FROM {self.catalog}.{self.schema}.pi_timeseries
+                    FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline1
+                    UNION
+                    SELECT DISTINCT tag_webid
+                    FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline2
+                    UNION
+                    SELECT DISTINCT tag_webid
+                    FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline3
+                    UNION
+                    SELECT DISTINCT tag_webid
+                    FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline4
+                    UNION
+                    SELECT DISTINCT tag_webid
+                    FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline5
+                    UNION
+                    SELECT DISTINCT tag_webid
+                    FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline6
+                    UNION
+                    SELECT DISTINCT tag_webid
+                    FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline7
                     LIMIT 1000
                 """,
                 catalog=self.catalog,
@@ -125,19 +170,46 @@ class LiveDashboard:
             return tags
 
         except Exception as e:
-            print(f"Warning: Could not fetch tags from Delta table: {e}")
+            print(f"Warning: Could not fetch tags from Delta tables: {e}")
             return []
 
     def fetch_live_data_sample(self, tag_webid: str) -> Dict[str, Any]:
-        """Fetch REAL latest data point from osipi.bronze.pi_timeseries Delta table"""
+        """Fetch REAL latest data point from ALL per-pipeline bronze tables"""
         try:
-            # Query Delta table for latest value for this tag
+            # Query ALL pi_timeseries_pipeline* tables using UNION
             result = self.workspace_client.statement_execution.execute_statement(
                 warehouse_id=self.warehouse_id,
                 statement=f"""
                     SELECT value, timestamp, quality_good, units
-                    FROM {self.catalog}.{self.schema}.pi_timeseries
-                    WHERE tag_webid = '{tag_webid}'
+                    FROM (
+                        SELECT value, timestamp, quality_good, units
+                        FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline1
+                        WHERE tag_webid = '{tag_webid}'
+                        UNION ALL
+                        SELECT value, timestamp, quality_good, units
+                        FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline2
+                        WHERE tag_webid = '{tag_webid}'
+                        UNION ALL
+                        SELECT value, timestamp, quality_good, units
+                        FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline3
+                        WHERE tag_webid = '{tag_webid}'
+                        UNION ALL
+                        SELECT value, timestamp, quality_good, units
+                        FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline4
+                        WHERE tag_webid = '{tag_webid}'
+                        UNION ALL
+                        SELECT value, timestamp, quality_good, units
+                        FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline5
+                        WHERE tag_webid = '{tag_webid}'
+                        UNION ALL
+                        SELECT value, timestamp, quality_good, units
+                        FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline6
+                        WHERE tag_webid = '{tag_webid}'
+                        UNION ALL
+                        SELECT value, timestamp, quality_good, units
+                        FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline7
+                        WHERE tag_webid = '{tag_webid}'
+                    )
                     ORDER BY timestamp DESC
                     LIMIT 1
                 """,
@@ -158,7 +230,68 @@ class LiveDashboard:
             return {}
 
         except Exception as e:
-            print(f"Warning: Could not fetch live data from Delta table: {e}")
+            print(f"Warning: Could not fetch live data from Delta tables: {e}")
+            return {}
+
+    def fetch_event_frames_count(self) -> int:
+        """Fetch count of event frames from ALL per-pipeline bronze tables"""
+        try:
+            # Query ALL pi_event_frames_pipeline* tables using UNION
+            result = self.workspace_client.statement_execution.execute_statement(
+                warehouse_id=self.warehouse_id,
+                statement=f"""
+                    SELECT COUNT(*) as event_count
+                    FROM (
+                        SELECT event_frame_id FROM {self.catalog}.{self.schema}.pi_event_frames_pipeline1
+                        UNION ALL
+                        SELECT event_frame_id FROM {self.catalog}.{self.schema}.pi_event_frames_pipeline2
+                        UNION ALL
+                        SELECT event_frame_id FROM {self.catalog}.{self.schema}.pi_event_frames_pipeline3
+                        UNION ALL
+                        SELECT event_frame_id FROM {self.catalog}.{self.schema}.pi_event_frames_pipeline4
+                        UNION ALL
+                        SELECT event_frame_id FROM {self.catalog}.{self.schema}.pi_event_frames_pipeline5
+                        UNION ALL
+                        SELECT event_frame_id FROM {self.catalog}.{self.schema}.pi_event_frames_pipeline6
+                        UNION ALL
+                        SELECT event_frame_id FROM {self.catalog}.{self.schema}.pi_event_frames_pipeline7
+                    )
+                """,
+                catalog=self.catalog,
+                schema=self.schema
+            )
+
+            if result.result.data_array and len(result.result.data_array) > 0:
+                return result.result.data_array[0][0]
+            return 0
+
+        except Exception as e:
+            print(f"Warning: Could not fetch event frames count: {e}")
+            return 0
+
+    def fetch_pipeline_stats(self) -> Dict[int, int]:
+        """Fetch record counts per pipeline (shows contribution from each of the 7 pipelines)"""
+        try:
+            pipeline_counts = {}
+            for pipeline_id in range(1, 8):
+                result = self.workspace_client.statement_execution.execute_statement(
+                    warehouse_id=self.warehouse_id,
+                    statement=f"""
+                        SELECT COUNT(*) as row_count
+                        FROM {self.catalog}.{self.schema}.pi_timeseries_pipeline{pipeline_id}
+                    """,
+                    catalog=self.catalog,
+                    schema=self.schema
+                )
+                if result.result.data_array and len(result.result.data_array) > 0:
+                    pipeline_counts[pipeline_id] = result.result.data_array[0][0]
+                else:
+                    pipeline_counts[pipeline_id] = 0
+
+            return pipeline_counts
+
+        except Exception as e:
+            print(f"Warning: Could not fetch pipeline stats: {e}")
             return {}
 
     def visualize_af_hierarchy(self, ax):
@@ -314,46 +447,66 @@ class LiveDashboard:
                     color=self.colors['navy'])
 
     def visualize_stats(self, ax):
-        """Show system statistics"""
+        """Show system statistics including per-pipeline breakdown"""
         ax.clear()
 
+        # Fetch event frames count and pipeline stats
+        self.event_frames_count = self.fetch_event_frames_count()
+        self.pipeline_stats = self.fetch_pipeline_stats()
+
+        # Main stats at top
         stats = [
             {'label': 'Total Tags', 'value': self.tag_count, 'icon': '📊'},
             {'label': 'AF Elements', 'value': self.elements_count, 'icon': '🏭'},
-            {'label': 'Status', 'value': 'ACTIVE', 'icon': '✓'},
-            {'label': 'Latency', 'value': '<100ms', 'icon': '⚡'}
+            {'label': 'Event Frames', 'value': self.event_frames_count, 'icon': '⚠️'},
+            {'label': 'Pipelines Active', 'value': len([v for v in self.pipeline_stats.values() if v > 0]), 'icon': '⚡'}
         ]
 
-        y_pos = 0.85
+        y_pos = 0.95
         for stat in stats:
             # Draw stat box
             rect = mpatches.FancyBboxPatch(
-                (0.1, y_pos - 0.08), 0.8, 0.15,
-                boxstyle="round,pad=0.01",
+                (0.05, y_pos - 0.06), 0.9, 0.08,
+                boxstyle="round,pad=0.005",
                 facecolor='#F5F5F5',
                 edgecolor=self.colors['cyan'],
-                linewidth=2,
+                linewidth=1.5,
                 transform=ax.transAxes
             )
             ax.add_patch(rect)
 
             # Label
-            ax.text(0.15, y_pos + 0.02, f"{stat['icon']} {stat['label']}",
-                   fontsize=10, fontweight='bold',
+            ax.text(0.08, y_pos - 0.02, f"{stat['icon']} {stat['label']}",
+                   fontsize=8, fontweight='bold',
                    color=self.colors['navy'], transform=ax.transAxes)
 
             # Value
             value_str = str(stat['value'])
-            ax.text(0.85, y_pos + 0.02, value_str,
-                   fontsize=14, fontweight='bold',
+            ax.text(0.92, y_pos - 0.02, value_str,
+                   fontsize=11, fontweight='bold',
                    color=self.colors['lava'], ha='right', transform=ax.transAxes)
 
-            y_pos -= 0.2
+            y_pos -= 0.10
+
+        # Pipeline breakdown section
+        if self.pipeline_stats:
+            ax.text(0.5, y_pos - 0.03, 'Pipeline Contribution:',
+                   fontsize=9, fontweight='bold',
+                   color=self.colors['navy'], ha='center', transform=ax.transAxes)
+            y_pos -= 0.08
+
+            for pipeline_id, count in sorted(self.pipeline_stats.items()):
+                if count > 0:  # Only show active pipelines
+                    ax.text(0.1, y_pos, f"Pipeline {pipeline_id}:",
+                           fontsize=7, color=self.colors['navy'], transform=ax.transAxes)
+                    ax.text(0.9, y_pos, f"{count:,} records",
+                           fontsize=7, color=self.colors['cyan'], ha='right', transform=ax.transAxes)
+                    y_pos -= 0.06
 
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.axis('off')
-        ax.set_title('System Statistics', fontsize=14, fontweight='bold',
+        ax.set_title('System Statistics (7 Pipelines)', fontsize=12, fontweight='bold',
                     color=self.colors['navy'])
 
     def create_dashboard(self):
