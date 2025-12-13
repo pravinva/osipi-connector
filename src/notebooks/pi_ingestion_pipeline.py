@@ -92,25 +92,16 @@ else:
 # if auth type is 'oauth', use the provided headers instead of basic auth
 
 # COMMAND ----------
-# Define DLT tables for PI Web API data
+# Define DLT streaming tables for PI Web API data
+# Using append mode to allow multiple pipelines to write to the same tables
 
-@dlt.table(
-    name="pi_timeseries",
-    comment="PI Web API time-series data with overlapping window deduplication",
-    table_properties={
-        "quality": "bronze",
-        "pipelines.autoOptimize.managed": "true",
-        "delta.enableChangeDataFeed": "true",
-        "pipelines.merge.keys": "tag_webid,timestamp"
-    },
-    partition_cols=["partition_date"]
+@dlt.view(
+    name="pi_timeseries_raw"
 )
-def pi_timeseries():
+def pi_timeseries_raw():
     """
-    Bronze table for raw PI time-series data.
-
-    Fetches last 7 days on each run (overlapping windows).
-    Uses MERGE on write to deduplicate based on (tag_webid, timestamp).
+    Raw streaming view for PI time-series data.
+    Multiple pipelines can read from this view and append to the bronze table.
     """
     from datetime import datetime, timedelta
     from pyspark.sql.functions import col, current_timestamp
@@ -134,23 +125,37 @@ def pi_timeseries():
 
     return df
 
+@dlt.table(
+    name="pi_timeseries",
+    comment="PI Web API time-series data - multiple pipelines append concurrently",
+    table_properties={
+        "quality": "bronze",
+        "delta.enableChangeDataFeed": "true"
+    },
+    partition_cols=["partition_date"]
+)
+def pi_timeseries():
+    """
+    Bronze table for raw PI time-series data.
+
+    Uses streaming append mode to allow multiple pipelines to write concurrently.
+    Deduplication happens via merge keys at read time in silver layer.
+    """
+    return (
+        dlt.read_stream("pi_timeseries_raw")
+        .dropDuplicates(["tag_webid", "timestamp"])  # Dedupe within each batch
+    )
+
 # COMMAND ----------
 # AF Hierarchy Table
 
-@dlt.table(
-    name="pi_af_hierarchy",
-    comment="PI Asset Framework hierarchy from PI Web API",
-    table_properties={
-        "quality": "bronze",
-        "pipelines.autoOptimize.managed": "true",
-        "delta.enableChangeDataFeed": "true"
-    }
+@dlt.view(
+    name="pi_af_hierarchy_raw"
 )
-def pi_af_hierarchy():
+def pi_af_hierarchy_raw():
     """
-    Bronze table for AF (Asset Framework) hierarchy.
-
-    Full refresh on each run - AF structure doesn't change frequently.
+    Raw view for AF (Asset Framework) hierarchy.
+    Multiple pipelines can read from this and append to bronze table.
     """
     from pyspark.sql.functions import current_timestamp
 
@@ -163,26 +168,36 @@ def pi_af_hierarchy():
 
     return df
 
+@dlt.table(
+    name="pi_af_hierarchy",
+    comment="PI Asset Framework hierarchy - multiple pipelines append concurrently",
+    table_properties={
+        "quality": "bronze",
+        "delta.enableChangeDataFeed": "true"
+    }
+)
+def pi_af_hierarchy():
+    """
+    Bronze table for AF (Asset Framework) hierarchy.
+
+    Uses streaming append mode to allow multiple pipelines to write concurrently.
+    Each pipeline contributes hierarchy for its plant's tags.
+    """
+    return (
+        dlt.read_stream("pi_af_hierarchy_raw")
+        .dropDuplicates(["element_webid"])  # Dedupe within each batch
+    )
+
 # COMMAND ----------
 # Event Frames Table
 
-@dlt.table(
-    name="pi_event_frames",
-    comment="PI Event Frames (batch runs, alarms, maintenance) from PI Web API",
-    table_properties={
-        "quality": "bronze",
-        "pipelines.autoOptimize.managed": "true",
-        "delta.enableChangeDataFeed": "true",
-        "pipelines.merge.keys": "webid,start_time"
-    },
-    partition_cols=["partition_date"]
+@dlt.view(
+    name="pi_event_frames_raw"
 )
-def pi_event_frames():
+def pi_event_frames_raw():
     """
-    Bronze table for Event Frames (alarms, events, batch runs).
-
-    Fetches last 30 days on each run (overlapping windows).
-    Uses MERGE on write to deduplicate based on (event_frame_id, start_time).
+    Raw view for Event Frames (alarms, events, batch runs).
+    Multiple pipelines can read from this and append to bronze table.
     """
     from pyspark.sql.functions import col, current_timestamp
     from datetime import datetime, timedelta
@@ -201,3 +216,24 @@ def pi_event_frames():
     df = df.withColumn("partition_date", col("start_time").cast("date"))
 
     return df
+
+@dlt.table(
+    name="pi_event_frames",
+    comment="PI Event Frames - multiple pipelines append concurrently",
+    table_properties={
+        "quality": "bronze",
+        "delta.enableChangeDataFeed": "true"
+    },
+    partition_cols=["partition_date"]
+)
+def pi_event_frames():
+    """
+    Bronze table for Event Frames (alarms, events, batch runs).
+
+    Uses streaming append mode to allow multiple pipelines to write concurrently.
+    Each pipeline contributes events for its plant's tags.
+    """
+    return (
+        dlt.read_stream("pi_event_frames_raw")
+        .dropDuplicates(["webid", "start_time"])  # Dedupe within each batch
+    )
