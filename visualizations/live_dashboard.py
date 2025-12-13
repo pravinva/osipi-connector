@@ -1,16 +1,15 @@
 """
 Live Demo Dashboard - Visual Representation of OSIPI Data Ingestion
 
-Fetches REAL data from mock PI server and displays:
-- AF Hierarchy (actual structure from mock server)
+Fetches REAL data from Delta tables and displays:
+- AF Hierarchy (actual structure from osipi.bronze.pi_af_hierarchy)
 - Real-time data flow
 - Late data detection metrics
 - System statistics
 
-No need to go to Databricks workspace - everything visible locally!
+Reads directly from Unity Catalog tables - NO FAKE DATA!
 """
 
-import requests
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.animation import FuncAnimation
@@ -20,17 +19,30 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any
 import numpy as np
 from collections import deque
+import os
+from databricks.sdk import WorkspaceClient
 
 
 class LiveDashboard:
     """
-    Real-time dashboard showing actual data from mock PI server
+    Real-time dashboard showing actual data from Delta tables (REAL DATA ONLY)
     """
 
-    def __init__(self, pi_server_url: str = "http://localhost:5050",
-                 databricks_enabled: bool = False):
-        self.pi_server_url = pi_server_url
-        self.databricks_enabled = databricks_enabled
+    def __init__(self,
+                 databricks_host: str = None,
+                 databricks_token: str = None,
+                 warehouse_id: str = "4b9b953939869799",
+                 catalog: str = "osipi",
+                 schema: str = "bronze"):
+        # Initialize Databricks workspace client
+        if databricks_host and databricks_token:
+            os.environ['DATABRICKS_HOST'] = databricks_host
+            os.environ['DATABRICKS_TOKEN'] = databricks_token
+
+        self.workspace_client = WorkspaceClient()
+        self.warehouse_id = warehouse_id
+        self.catalog = catalog
+        self.schema = schema
 
         # Databricks colors
         self.colors = {
@@ -50,68 +62,104 @@ class LiveDashboard:
         self.elements_count = 0
 
     def fetch_af_hierarchy(self) -> Dict[str, Any]:
-        """Fetch REAL AF hierarchy from mock PI server"""
+        """Fetch REAL AF hierarchy from osipi.bronze.pi_af_hierarchy Delta table"""
         try:
-            response = requests.get(
-                f"{self.pi_server_url}/piwebapi/assetservers",
-                timeout=5
+            # Query Delta table for AF hierarchy
+            result = self.workspace_client.statement_execution.execute_statement(
+                warehouse_id=self.warehouse_id,
+                statement=f"""
+                    SELECT element_id, element_name, element_path, parent_id,
+                           element_type, template_name, depth
+                    FROM {self.catalog}.{self.schema}.pi_af_hierarchy
+                    ORDER BY depth, element_name
+                    LIMIT 100
+                """,
+                catalog=self.catalog,
+                schema=self.schema
             )
-            if response.status_code == 200:
-                servers = response.json()
-                if servers.get('Items'):
-                    server_webid = servers['Items'][0]['WebId']
 
-                    # Get databases
-                    db_response = requests.get(
-                        f"{self.pi_server_url}/piwebapi/assetservers/{server_webid}/assetdatabases",
-                        timeout=5
-                    )
-                    if db_response.status_code == 200:
-                        databases = db_response.json()
-                        if databases.get('Items'):
-                            db_webid = databases['Items'][0]['WebId']
+            # Convert to API-like format for compatibility with visualization
+            items = []
+            if result.result.data_array:
+                for row in result.result.data_array:
+                    items.append({
+                        'WebId': row[0],  # element_id
+                        'Name': row[1],    # element_name
+                        'Path': row[2],    # element_path
+                        'ParentId': row[3], # parent_id
+                        'Type': row[4],    # element_type
+                        'Template': row[5], # template_name
+                        'Depth': row[6]    # depth
+                    })
 
-                            # Get elements
-                            elem_response = requests.get(
-                                f"{self.pi_server_url}/piwebapi/assetdatabases/{db_webid}/elements",
-                                timeout=5
-                            )
-                            if elem_response.status_code == 200:
-                                return elem_response.json()
+            return {'Items': items}
 
         except Exception as e:
-            print(f"Warning: Could not fetch AF hierarchy: {e}")
-
-        return {'Items': []}
+            print(f"Warning: Could not fetch AF hierarchy from Delta table: {e}")
+            return {'Items': []}
 
     def fetch_tag_list(self) -> List[Dict[str, Any]]:
-        """Fetch REAL tag list from mock PI server"""
+        """Fetch REAL tag list from osipi.bronze.pi_timeseries Delta table"""
         try:
-            response = requests.get(
-                f"{self.pi_server_url}/piwebapi/dataservers/F1DP-PIServer/points",
-                params={'maxCount': 1000},
-                timeout=5
+            # Query Delta table for distinct tags
+            result = self.workspace_client.statement_execution.execute_statement(
+                warehouse_id=self.warehouse_id,
+                statement=f"""
+                    SELECT DISTINCT tag_webid
+                    FROM {self.catalog}.{self.schema}.pi_timeseries
+                    LIMIT 1000
+                """,
+                catalog=self.catalog,
+                schema=self.schema
             )
-            if response.status_code == 200:
-                return response.json().get('Items', [])
-        except Exception as e:
-            print(f"Warning: Could not fetch tags: {e}")
 
-        return []
+            # Convert to API-like format
+            tags = []
+            if result.result.data_array:
+                for row in result.result.data_array:
+                    tags.append({
+                        'WebId': row[0],
+                        'Name': row[0]  # Use WebId as name for now
+                    })
+
+            return tags
+
+        except Exception as e:
+            print(f"Warning: Could not fetch tags from Delta table: {e}")
+            return []
 
     def fetch_live_data_sample(self, tag_webid: str) -> Dict[str, Any]:
-        """Fetch REAL live data point from mock PI server"""
+        """Fetch REAL latest data point from osipi.bronze.pi_timeseries Delta table"""
         try:
-            response = requests.get(
-                f"{self.pi_server_url}/piwebapi/streams/{tag_webid}/value",
-                timeout=5
+            # Query Delta table for latest value for this tag
+            result = self.workspace_client.statement_execution.execute_statement(
+                warehouse_id=self.warehouse_id,
+                statement=f"""
+                    SELECT value, timestamp, quality_good, units
+                    FROM {self.catalog}.{self.schema}.pi_timeseries
+                    WHERE tag_webid = '{tag_webid}'
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                """,
+                catalog=self.catalog,
+                schema=self.schema
             )
-            if response.status_code == 200:
-                return response.json()
-        except Exception as e:
-            print(f"Warning: Could not fetch live data: {e}")
 
-        return {}
+            # Convert to API-like format
+            if result.result.data_array and len(result.result.data_array) > 0:
+                row = result.result.data_array[0]
+                return {
+                    'Value': row[0],      # value
+                    'Timestamp': row[1],  # timestamp
+                    'Good': row[2],       # quality_good
+                    'UnitsAbbreviation': row[3] if len(row) > 3 else ''  # units
+                }
+
+            return {}
+
+        except Exception as e:
+            print(f"Warning: Could not fetch live data from Delta table: {e}")
+            return {}
 
     def visualize_af_hierarchy(self, ax):
         """Visualize REAL AF hierarchy as tree"""
@@ -341,7 +389,19 @@ class LiveDashboard:
 
 def create_ascii_dashboard():
     """Create ASCII dashboard for terminal display"""
-    dashboard = LiveDashboard()
+    # Use environment variables for Databricks credentials
+    databricks_host = os.getenv('DATABRICKS_HOST', 'https://e2-demo-field-eng.cloud.databricks.com')
+    databricks_token = os.getenv('DATABRICKS_TOKEN')
+
+    if not databricks_token:
+        print("ERROR: DATABRICKS_TOKEN environment variable not set!")
+        print("Please set DATABRICKS_HOST and DATABRICKS_TOKEN to query Delta tables.")
+        return
+
+    dashboard = LiveDashboard(
+        databricks_host=databricks_host,
+        databricks_token=databricks_token
+    )
 
     tags = dashboard.fetch_tag_list()
     hierarchy = dashboard.fetch_af_hierarchy()
@@ -411,6 +471,21 @@ if __name__ == "__main__":
         print("Close window to exit.")
         print()
 
-        dashboard = LiveDashboard()
+        # Use environment variables for Databricks credentials
+        databricks_host = os.getenv('DATABRICKS_HOST', 'https://e2-demo-field-eng.cloud.databricks.com')
+        databricks_token = os.getenv('DATABRICKS_TOKEN')
+
+        if not databricks_token:
+            print("ERROR: DATABRICKS_TOKEN environment variable not set!")
+            print("Please set DATABRICKS_HOST and DATABRICKS_TOKEN to query Delta tables.")
+            print("\nExample:")
+            print("  export DATABRICKS_HOST='https://e2-demo-field-eng.cloud.databricks.com'")
+            print("  export DATABRICKS_TOKEN='dapi...'")
+            return
+
+        dashboard = LiveDashboard(
+            databricks_host=databricks_host,
+            databricks_token=databricks_token
+        )
         fig, ani = dashboard.create_dashboard()
         plt.show()
