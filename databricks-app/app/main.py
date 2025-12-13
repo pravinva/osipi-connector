@@ -566,6 +566,38 @@ async def get_recent_events() -> List[Dict[str, Any]]:
     return events
 
 
+@app.get("/api/ingestion/alarms")
+async def get_alarms() -> Dict[str, Any]:
+    """Get alarm statistics from all per-pipeline event frames tables."""
+
+    # Query event frames (alarms) data using UNION ALL pattern
+    query = build_union_query(
+        table_pattern="pi_event_frames",
+        select_columns="""COUNT(*) as total_alarms,
+            COUNT(DISTINCT event_name) as unique_alarm_types,
+            SUM(CASE WHEN acknowledged = true THEN 1 ELSE 0 END) as acknowledged_count,
+            SUM(CASE WHEN acknowledged = false OR acknowledged IS NULL THEN 1 ELSE 0 END) as unacknowledged_count"""
+    )
+
+    results = execute_sql(query)
+
+    if results and len(results) > 0:
+        row = results[0]
+        return {
+            "total_alarms": int(row.get('total_alarms', 0)),
+            "unique_alarm_types": int(row.get('unique_alarm_types', 0)),
+            "acknowledged": int(row.get('acknowledged_count', 0)),
+            "unacknowledged": int(row.get('unacknowledged_count', 0))
+        }
+
+    return {
+        "total_alarms": 0,
+        "unique_alarm_types": 0,
+        "acknowledged": 0,
+        "unacknowledged": 0
+    }
+
+
 @app.get("/api/data/af_hierarchy")
 async def get_af_hierarchy_data(limit: int = 100000) -> Dict[str, Any]:
     """Get AF hierarchy data from all per-pipeline bronze tables."""
