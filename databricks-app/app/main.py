@@ -575,8 +575,7 @@ async def get_alarms() -> Dict[str, Any]:
         table_pattern="pi_event_frames",
         select_columns="""COUNT(*) as total_alarms,
             COUNT(DISTINCT event_name) as unique_alarm_types,
-            SUM(CASE WHEN acknowledged = true THEN 1 ELSE 0 END) as acknowledged_count,
-            SUM(CASE WHEN acknowledged = false OR acknowledged IS NULL THEN 1 ELSE 0 END) as unacknowledged_count"""
+            COUNT(DISTINCT template_name) as unique_templates"""
     )
 
     results = execute_sql(query)
@@ -586,15 +585,13 @@ async def get_alarms() -> Dict[str, Any]:
         return {
             "total_alarms": int(row.get('total_alarms', 0)),
             "unique_alarm_types": int(row.get('unique_alarm_types', 0)),
-            "acknowledged": int(row.get('acknowledged_count', 0)),
-            "unacknowledged": int(row.get('unacknowledged_count', 0))
+            "unique_templates": int(row.get('unique_templates', 0))
         }
 
     return {
         "total_alarms": 0,
         "unique_alarm_types": 0,
-        "acknowledged": 0,
-        "unacknowledged": 0
+        "unique_templates": 0
     }
 
 
