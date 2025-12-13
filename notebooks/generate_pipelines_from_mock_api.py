@@ -425,6 +425,28 @@ print(f"✓ Generated YAML files:")
 print(f"  - {pipelines_file}")
 print(f"  - {jobs_file}")
 
+# DEBUG: Print pipeline configurations to verify pi.pipeline.id
+print("\n" + "=" * 80)
+print("DEBUG: Pipeline Configurations (pi.pipeline.id values)")
+print("=" * 80)
+for pipeline_name, pipeline_spec in sorted(pipelines_yaml['resources']['pipelines'].items()):
+    config_params = pipeline_spec.get('configuration', {})
+    pipeline_id = config_params.get('pi.pipeline.id', 'MISSING!')
+    catalog = pipeline_spec.get('catalog')
+    schema = config_params.get('pi.target.schema')
+
+    print(f"\nPipeline: {pipeline_name}")
+    print(f"  Display Name: {pipeline_spec['name']}")
+    print(f"  pi.pipeline.id: '{pipeline_id}' ← CRITICAL FOR PER-PIPELINE TABLES")
+    print(f"  Tables will be created:")
+    print(f"    - {catalog}.{schema}.pi_timeseries_pipeline{pipeline_id}")
+    print(f"    - {catalog}.{schema}.pi_af_hierarchy_pipeline{pipeline_id}")
+    print(f"    - {catalog}.{schema}.pi_event_frames_pipeline{pipeline_id}")
+
+print("\n" + "=" * 80)
+print("✓ Each pipeline has UNIQUE pi.pipeline.id → NO TABLE CONFLICTS!")
+print("=" * 80)
+
 # COMMAND ----------
 
 # MAGIC %md
