@@ -327,17 +327,19 @@ async def events_table_page(request: Request):
 @app.get("/data/alarms", response_class=HTMLResponse, include_in_schema=False)
 async def alarms_page(request: Request):
     """View Alarms (AlarmTemplate events) from Unity Catalog."""
-    results = execute_sql(f"""
-        SELECT
-            event_name as name,
+    # Query event frames using UNION ALL pattern for multi-pipeline architecture
+    query = build_union_query(
+        table_pattern="pi_event_frames",
+        select_columns="""event_name as name,
             start_time,
             end_time,
-            event_attributes as attributes
-        FROM {UC_CATALOG}.{UC_SCHEMA}.pi_event_frames
-        WHERE template_name = 'AlarmTemplate'
-        ORDER BY start_time DESC
-        LIMIT 100
-    """)
+            event_attributes as attributes""",
+        where_clause="template_name = 'AlarmTemplate'",
+        order_by="start_time DESC",
+        limit=100
+    )
+
+    results = execute_sql(query)
 
     return templates.TemplateResponse(
         "data_table.html",
