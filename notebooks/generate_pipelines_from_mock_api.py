@@ -341,6 +341,7 @@ def create_pipelines_yaml(df, project_name, notebook_path, ingestion_mode="batch
                 {'notebook': {'path': notebook_path}}
             ],
             'configuration': {
+                'pi.pipeline.id': str(pipeline_group),  # CRITICAL: Per-pipeline table architecture
                 'pi.tags': ','.join(tags),
                 'pi.server.url': first_row['pi_server_url'],
                 'pi.connection.name': first_row['connection_name'],
