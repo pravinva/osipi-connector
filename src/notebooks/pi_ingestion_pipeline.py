@@ -62,6 +62,8 @@ if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_
     if not workspace_host:
         workspace_host = ctx.apiUrl().get()
     workspace_host = workspace_host.rstrip('/')
+    if not workspace_host.startswith('http://') and not workspace_host.startswith('https://'):
+        workspace_host = 'https://' + workspace_host
 
     token_url = f"{workspace_host}/oidc/v1/token"
 
