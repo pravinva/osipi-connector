@@ -136,8 +136,25 @@ class PIWebAPIClient:
 
         self.logger.debug(f"POST {url} - Payload size: {len(str(json_data))} bytes")
 
+        # Helpful auth debugging for Databricks Apps failures (401/302)
         try:
-            response = self.session.post(url, json=json_data, timeout=timeout)
+            auth_val = (self.session.headers.get("Authorization") or "").strip()
+            try:
+            auth_val = (self.session.headers.get("Authorization") or "").strip()
+            if auth_val.startswith("Bearer " ):
+                token = auth_val[7:]
+                token_kind = "jwt" if token.startswith("ey") else ("pat" if token.startswith("dapi") else "unknown")
+                self.logger.error(f"[auth-debug] Authorization present: Bearer <{token_kind}> (masked)")
+            elif auth_val:
+                self.logger.error("[auth-debug] Authorization present (non-bearer, masked)")
+            else:
+                self.logger.error("[auth-debug] Authorization header MISSING on request")
+        except Exception:
+            pass
+
+        try:
+            # Do not follow redirects automatically; redirects to login are a strong signal of token mismatch.
+            response = self.session.post(url, json=json_data, timeout=timeout, allow_redirects=False)
             response.raise_for_status()
             self.logger.debug(f"POST {url} - Status: {response.status_code}")
             return response
@@ -231,6 +248,16 @@ class PIWebAPIClient:
         """
         if response is None:
             return
+
+        try:
+            self.logger.error(
+                f"[auth-debug] response status={response.status_code} "
+                f"redirect={response.is_redirect} location={response.headers.get('Location', '')} "
+                f"www-authenticate={response.headers.get('WWW-Authenticate', '')}"
+            )
+            self.logger.error(f"[auth-debug] response content-type={response.headers.get('content-type','')}")
+        except Exception:
+            pass
 
         try:
             error_data = response.json()
