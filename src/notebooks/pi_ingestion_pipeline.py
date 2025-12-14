@@ -38,31 +38,24 @@ pipeline_id = spark.conf.get('pi.pipeline.id', '1')
 auth_type = spark.conf.get('pi.auth.type', 'basic')
 
 if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_url:
-    # Use OAuth M2M for Databricks App (mock API)
-    from databricks.sdk import WorkspaceClient
+    # Use Bearer token authentication for Databricks App (mock API)
+    # This uses the pipeline creator's PAT token stored in sp-osipi scope
     import requests
 
-    # Get service principal credentials from sp-osipi scope
-    CLIENT_ID = dbutils.secrets.get(scope="sp-osipi", key="sp-client-id")
-    CLIENT_SECRET = dbutils.secrets.get(scope="sp-osipi", key="sp-client-secret")
+    # Get PAT token from sp-osipi scope
+    # This should be the user's personal access token
+    pat_token = dbutils.secrets.get(scope="sp-osipi", key="databricks-pat-token")
 
-    # Get workspace URL for token endpoint
-    workspace_url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
-
-    # Initialize WorkspaceClient with service principal
-    wc = WorkspaceClient(
-        host=workspace_url,
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET
-    )
-
-    # Get OAuth headers
-    auth_headers = wc.config.authenticate()
+    # Create Bearer auth headers
+    auth_headers = {
+        'Authorization': f'Bearer {pat_token}',
+        'Content-Type': 'application/json'
+    }
 
     config = {
         'pi_web_api_url': pi_server_url,
         'auth': {
-            'type': 'oauth',
+            'type': 'bearer',
             'headers': auth_headers  # Pass headers directly
         },
         'catalog': target_catalog,
