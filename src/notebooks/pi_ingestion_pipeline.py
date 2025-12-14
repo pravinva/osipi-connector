@@ -45,8 +45,25 @@ if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_
 
     CLIENT_ID = dbutils.secrets.get(scope="sp-osipi", key="sp-client-id")
     CLIENT_SECRET = dbutils.secrets.get(scope="sp-osipi", key="sp-client-secret")
-    workspace_url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get().rstrip('/')
-    token_url = f"{workspace_url}/oidc/v1/token"
+    # IMPORTANT: In DLT/serverless, context.apiUrl() can be a regional control-plane host
+    # (e.g., https://oregon.cloud.databricks.com) which is NOT the workspace hostname.
+    # The OIDC token endpoint must be called on the actual workspace host.
+    ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+    workspace_host = None
+    try:
+        workspace_host = 'https://' + ctx.browserHostName().get()
+    except Exception:
+        workspace_host = None
+    if not workspace_host:
+        try:
+            workspace_host = spark.conf.get('spark.databricks.workspaceUrl')
+        except Exception:
+            workspace_host = None
+    if not workspace_host:
+        workspace_host = ctx.apiUrl().get()
+    workspace_host = workspace_host.rstrip('/')
+
+    token_url = f"{workspace_host}/oidc/v1/token"
 
     token_resp = requests.post(
         token_url,
@@ -59,6 +76,9 @@ if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_
         headers={'Content-Type': 'application/x-www-form-urlencoded'},
         timeout=30,
     )
+    if token_resp.status_code >= 400:
+        print(f"[auth] OIDC token request failed: {token_resp.status_code} url={token_url}")
+        print(f"[auth] OIDC error body: {token_resp.text[:500]}")
     token_resp.raise_for_status()
     access_token = token_resp.json().get('access_token')
     if not access_token:
