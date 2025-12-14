@@ -38,17 +38,21 @@ pipeline_id = spark.conf.get('pi.pipeline.id', '1')
 auth_type = spark.conf.get('pi.auth.type', 'basic')
 
 if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_url:
-    # Use Bearer token authentication for Databricks App (mock API)
-    # This uses the pipeline creator's PAT token stored in sp-osipi scope
-    # Get PAT token from sp-osipi scope
-    # This should be the user's personal access token
-    pat_token = dbutils.secrets.get(scope="sp-osipi", key="databricks-pat-token")
-
-    # Create Bearer auth headers
-    auth_headers = {
-        'Authorization': f'Bearer {pat_token}',
-        'Content-Type': 'application/json'
-    }
+    # Databricks Apps are authenticated via workspace/OIDC (runtime) tokens.
+    # Personal access tokens (dapi...) typically redirect to the login flow on databricksapps.com.
+    # Use the current run identity (DLT/job) token instead.
+    auth_headers = None
+    try:
+        from databricks.sdk import WorkspaceClient
+        wc = WorkspaceClient()
+        auth_headers = wc.config.authenticate()
+    except Exception:
+        # Fallback to notebook context token if SDK is unavailable
+        try:
+            runtime_token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+            auth_headers = {"Authorization": f"Bearer {runtime_token}"}
+        except Exception as e:
+            raise RuntimeError("Unable to acquire runtime auth token for Databricks App calls") from e
 
     config = {
         'pi_web_api_url': pi_server_url,

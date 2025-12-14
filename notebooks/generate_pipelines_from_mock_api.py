@@ -135,22 +135,24 @@ print(f"Expected Pipelines: {len(SELECTED_PLANTS)} (one per plant)")
 # COMMAND ----------
 
 # NOTE:
-# This generator only needs to call the Databricks App endpoints to discover tags.
-# Using Service Principal OAuth (M2M) can 401 if that service principal is not explicitly
-# granted "Can Use" permission on the App.
-#
-# For reliability, use a PAT stored in secrets and send it as a Bearer token.
-print("Authenticating to Databricks App using PAT from secrets...")
+# Databricks Apps are authenticated via workspace/OIDC (runtime) tokens.
+# Workspace PATs (dapi...) generally redirect to the login flow on databricksapps.com.
+# Use the current notebook/job identity token instead.
+print("Authenticating to Databricks App using runtime token...")
 print(f"URL: {MOCK_API_URL}")
 
-# PAT must belong to a principal that has "Can Use" permission on the App
-pat_token = dbutils.secrets.get(scope="sp-osipi", key="databricks-pat-token")
-headers = {
-    "Authorization": f"Bearer {pat_token}",
-    "Content-Type": "application/json",
-}
+headers = None
+try:
+    from databricks.sdk import WorkspaceClient
+    wc = WorkspaceClient()
+    headers = wc.config.authenticate()
+except Exception:
+    # Fallback to notebook context token
+    runtime_token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+    headers = {"Authorization": f"Bearer {runtime_token}"}
 
-print("✓ Authentication configured (PAT Bearer)")
+# Requests in this notebook use GET with query params; JSON content-type not required.
+print("✓ Authentication configured (runtime Bearer)")
 print(f"  Headers: {list(headers.keys())}")
 
 # COMMAND ----------
