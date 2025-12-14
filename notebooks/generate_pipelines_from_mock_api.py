@@ -135,24 +135,27 @@ print(f"Expected Pipelines: {len(SELECTED_PLANTS)} (one per plant)")
 # COMMAND ----------
 
 # NOTE:
-# Databricks Apps are authenticated via workspace/OIDC (runtime) tokens.
-# Workspace PATs (dapi...) generally redirect to the login flow on databricksapps.com.
-# Use the current notebook/job identity token instead.
-print("Authenticating to Databricks App using runtime token...")
+# Databricks Apps require OAuth tokens. Use a Service Principal (client credentials)
+# that has been granted "Can Use" permission on the App.
+print("Authenticating to Databricks App using Service Principal OAuth...")
 print(f"URL: {MOCK_API_URL}")
 
-headers = None
-try:
-    from databricks.sdk import WorkspaceClient
-    wc = WorkspaceClient()
-    headers = wc.config.authenticate()
-except Exception:
-    # Fallback to notebook context token
-    runtime_token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
-    headers = {"Authorization": f"Bearer {runtime_token}"}
+from databricks.sdk import WorkspaceClient
 
-# Requests in this notebook use GET with query params; JSON content-type not required.
-print("✓ Authentication configured (runtime Bearer)")
+CLIENT_ID = dbutils.secrets.get(scope="sp-osipi", key="sp-client-id")
+CLIENT_SECRET = dbutils.secrets.get(scope="sp-osipi", key="sp-client-secret")
+workspace_url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
+
+wc = WorkspaceClient(
+    host=workspace_url,
+    client_id=CLIENT_ID,
+    client_secret=CLIENT_SECRET,
+)
+
+headers = wc.config.authenticate()
+
+print("✓ Authentication configured (SP OAuth)")
+print(f"  Client ID: {CLIENT_ID[:8]}...")
 print(f"  Headers: {list(headers.keys())}")
 
 # COMMAND ----------

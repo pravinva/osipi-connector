@@ -38,21 +38,21 @@ pipeline_id = spark.conf.get('pi.pipeline.id', '1')
 auth_type = spark.conf.get('pi.auth.type', 'basic')
 
 if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_url:
-    # Databricks Apps are authenticated via workspace/OIDC (runtime) tokens.
-    # Personal access tokens (dapi...) typically redirect to the login flow on databricksapps.com.
-    # Use the current run identity (DLT/job) token instead.
-    auth_headers = None
-    try:
-        from databricks.sdk import WorkspaceClient
-        wc = WorkspaceClient()
-        auth_headers = wc.config.authenticate()
-    except Exception:
-        # Fallback to notebook context token if SDK is unavailable
-        try:
-            runtime_token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
-            auth_headers = {"Authorization": f"Bearer {runtime_token}"}
-        except Exception as e:
-            raise RuntimeError("Unable to acquire runtime auth token for Databricks App calls") from e
+    # Databricks Apps require OAuth tokens. Use a Service Principal (client credentials)
+    # that has been granted "Can Use" permission on the App.
+    from databricks.sdk import WorkspaceClient
+
+    CLIENT_ID = dbutils.secrets.get(scope="sp-osipi", key="sp-client-id")
+    CLIENT_SECRET = dbutils.secrets.get(scope="sp-osipi", key="sp-client-secret")
+    workspace_url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
+
+    wc = WorkspaceClient(
+        host=workspace_url,
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+    )
+
+    auth_headers = wc.config.authenticate()
 
     config = {
         'pi_web_api_url': pi_server_url,
