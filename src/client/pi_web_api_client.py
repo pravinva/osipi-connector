@@ -139,9 +139,7 @@ class PIWebAPIClient:
         # Helpful auth debugging for Databricks Apps failures (401/302)
         try:
             auth_val = (self.session.headers.get("Authorization") or "").strip()
-            try:
-            auth_val = (self.session.headers.get("Authorization") or "").strip()
-            if auth_val.startswith("Bearer " ):
+            if auth_val.startswith("Bearer "):
                 token = auth_val[7:]
                 token_kind = "jwt" if token.startswith("ey") else ("pat" if token.startswith("dapi") else "unknown")
                 self.logger.error(f"[auth-debug] Authorization present: Bearer <{token_kind}> (masked)")
