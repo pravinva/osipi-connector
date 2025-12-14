@@ -38,27 +38,20 @@ pipeline_id = spark.conf.get('pi.pipeline.id', '1')
 auth_type = spark.conf.get('pi.auth.type', 'basic')
 
 if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_url:
-    # Databricks Apps require OAuth tokens. Use a Service Principal (client credentials)
-    # that has been granted "Can Use" permission on the App.
+    # Databricks Apps authenticate using the App's OAuth client integration (see redirect client_id).
+    # When the pipeline runs as a user, the most reliable option is to use the runtime WorkspaceClient()
+    # (which uses the run-as identity) rather than a workspace PAT or a generic M2M token.
     from databricks.sdk import WorkspaceClient
 
-    CLIENT_ID = dbutils.secrets.get(scope="sp-osipi", key="sp-client-id")
-    CLIENT_SECRET = dbutils.secrets.get(scope="sp-osipi", key="sp-client-secret")
-    workspace_url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
-
-    wc = WorkspaceClient(
-        host=workspace_url,
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET,
-    )
-
+    wc = WorkspaceClient()
     auth_headers = wc.config.authenticate()
 
     # Preflight: quickly verify the App accepts the token (avoids failing deep inside extraction)
     try:
         import requests
         auth_val = auth_headers.get('Authorization', '')
-        token_kind = 'jwt' if auth_val.startswith('Bearer ey') else ('pat' if auth_val.startswith('Bearer dapi') else 'unknown')
+        token = auth_val[7:] if auth_val.startswith('Bearer ') else ''
+        token_kind = 'jwt' if token.startswith('ey') or token.count('.') == 2 else ('pat' if token.startswith('dapi') else 'opaque')
         print(f"[auth] App token kind: {token_kind}")
 
         r = requests.post(
