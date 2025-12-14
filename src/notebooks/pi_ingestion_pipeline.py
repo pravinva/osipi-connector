@@ -40,8 +40,6 @@ auth_type = spark.conf.get('pi.auth.type', 'basic')
 if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_url:
     # Use Bearer token authentication for Databricks App (mock API)
     # This uses the pipeline creator's PAT token stored in sp-osipi scope
-    import requests
-
     # Get PAT token from sp-osipi scope
     # This should be the user's personal access token
     pat_token = dbutils.secrets.get(scope="sp-osipi", key="databricks-pat-token")
@@ -55,7 +53,7 @@ if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_
     config = {
         'pi_web_api_url': pi_server_url,
         'auth': {
-            'type': 'bearer',
+            'type': 'oauth',
             'headers': auth_headers  # Pass headers directly
         },
         'catalog': target_catalog,

@@ -23,11 +23,9 @@ A table can only be owned by one pipeline.
 - No ownership conflicts since each pipeline owns its tables
 - Pipelines can run concurrently without coordination
 
-**Silver Layer (Single Merge Pipeline)**:
-- Single pipeline reads from ALL bronze pipeline tables
-- Merges and deduplicates data into unified silver tables
-- Uses window functions to keep most recent ingestion per unique key
-- Provides clean, deduplicated data for downstream consumption
+**Silver Layer (Optional)**:
+- This repo currently focuses on the **bronze per-pipeline tables** written by `pi_ingestion_pipeline`.
+- A silver merge pipeline is a valid pattern, but the sample silver notebooks were removed to keep the repo aligned with the “pipelines are generated from the mock API” workflow.
 
 ## Table Structure
 
@@ -90,18 +88,9 @@ configuration:
 - `osipi.bronze.pi_af_hierarchy_pipeline1`
 - `osipi.bronze.pi_event_frames_pipeline1`
 
-### Silver Merge Pipeline
+### Silver Merge Pipeline (Optional)
 
-**Configuration Parameters**:
-```yaml
-configuration:
-  pi.target.catalog: "osipi"
-  pi.bronze.schema: "bronze"
-  pi.silver.schema: "silver"
-```
-
-**Dynamic Discovery**:
-The silver pipeline uses `get_bronze_tables(pattern)` to automatically discover all bronze tables matching the pattern. This means new bronze pipelines are automatically included without configuration changes.
+If you need unified “silver” tables, create a separate pipeline that reads from `pi_*_pipeline*` bronze tables and merges/deduplicates into a silver schema. (Not included in this repo right now.)
 
 ## Deduplication Strategy
 
@@ -166,13 +155,9 @@ Run `notebooks/validate_and_deploy_dab.py`:
 - Each pipeline uses `src/notebooks/pi_ingestion_pipeline.py`
 - Pipelines can run concurrently
 
-### 3. Deploy Silver Merge Pipeline
+### 3. Deploy Silver Merge Pipeline (Optional)
 
-Manually create DLT pipeline:
-- Notebook: `src/notebooks/silver_merge_pipeline.py`
-- Catalog: `osipi`
-- Target Schema: `silver`
-- Mode: Triggered (runs after bronze pipelines complete)
+Create a dedicated merge pipeline if/when you want silver tables. (No merge notebook is shipped in this repo currently.)
 
 ### 4. Schedule Coordination
 
@@ -227,9 +212,7 @@ non_critical_tags = get_non_critical_tags()
 ## File References
 
 - **Bronze Ingestion**: `src/notebooks/pi_ingestion_pipeline.py`
-- **Silver Merge**: `src/notebooks/silver_merge_pipeline.py`
 - **Configuration Generator**: `notebooks/generate_pipelines_from_mock_api.py`
-- **Deployment**: `notebooks/validate_and_deploy_dab.py`
 
 ## Migration from Old Architecture
 
