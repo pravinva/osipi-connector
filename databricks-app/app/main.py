@@ -54,6 +54,37 @@ except Exception as e:
     print(f"⚠️  Failed to connect to Databricks: {e}")
     w = None
 
+# ============================================================================
+# CACHING LAYER FOR PERFORMANCE
+# ============================================================================
+from functools import lru_cache
+import time
+
+# Cache configuration
+CACHE_TTL = 60  # seconds - cache for 1 minute
+_cache_timestamps = {}
+
+def cache_with_ttl(ttl_seconds: int):
+    """Decorator to cache function results with a TTL."""
+    def decorator(func):
+        cache_key = func.__name__
+        _cache_timestamps[cache_key] = 0
+        cached_func = lru_cache(maxsize=1)(func)
+
+        def wrapper(*args, **kwargs):
+            current_time = time.time()
+            last_cache_time = _cache_timestamps.get(cache_key, 0)
+
+            # Invalidate cache if TTL expired
+            if current_time - last_cache_time > ttl_seconds:
+                cached_func.cache_clear()
+                _cache_timestamps[cache_key] = current_time
+
+            return cached_func(*args, **kwargs)
+
+        return wrapper
+    return decorator
+
 
 def execute_sql(query: str) -> List[Dict]:
     """Execute SQL query and return results as list of dicts."""
@@ -96,9 +127,11 @@ def execute_sql(query: str) -> List[Dict]:
         return []
 
 
+@cache_with_ttl(ttl_seconds=300)  # Cache for 5 minutes
 def get_pipeline_tables(table_pattern: str) -> List[str]:
     """
     Dynamically discover all per-pipeline bronze tables matching the pattern.
+    Cached for 5 minutes to avoid repeated INFORMATION_SCHEMA queries.
 
     Args:
         table_pattern: Base table name (e.g., 'pi_timeseries', 'pi_af_hierarchy', 'pi_event_frames')
@@ -597,10 +630,9 @@ async def get_alarms() -> Dict[str, Any]:
     }
 
 
-@app.get("/api/ingestion/af-hierarchy")
-async def get_af_hierarchy_stats() -> Dict[str, Any]:
-    """Get AF hierarchy statistics from all per-pipeline AF hierarchy tables."""
-
+@cache_with_ttl(ttl_seconds=60)  # Cache for 1 minute
+def _get_af_hierarchy_stats_cached() -> Dict[str, Any]:
+    """Internal cached function for AF hierarchy stats."""
     # Query AF hierarchy data using UNION ALL pattern
     # Use template_name to identify element types:
     # - Plants: depth=0 or template_name='PlantTemplate'
@@ -633,9 +665,26 @@ async def get_af_hierarchy_stats() -> Dict[str, Any]:
     }
 
 
+@app.get("/api/ingestion/af-hierarchy")
+async def get_af_hierarchy_stats() -> Dict[str, Any]:
+    """Get AF hierarchy statistics from all per-pipeline AF hierarchy tables. Cached for 1 minute."""
+    return _get_af_hierarchy_stats_cached()
+
+
 @app.get("/api/data/af_hierarchy")
-async def get_af_hierarchy_data(limit: int = 100000) -> Dict[str, Any]:
-    """Get AF hierarchy data from all per-pipeline bronze tables."""
+async def get_af_hierarchy_data(limit: int = 5000, offset: int = 0) -> Dict[str, Any]:
+    """
+    Get AF hierarchy data from all per-pipeline bronze tables.
+
+    Args:
+        limit: Maximum number of records to return (default: 5000, reduced from 100000 for performance)
+        offset: Number of records to skip (for pagination)
+
+    Returns:
+        Dictionary with data array and count
+    """
+    # Reduced default limit from 100000 to 5000 for better performance
+    # Frontend can paginate if needed
     query = build_union_query(
         table_pattern="pi_af_hierarchy",
         select_columns="""element_name as name,
@@ -643,17 +692,24 @@ async def get_af_hierarchy_data(limit: int = 100000) -> Dict[str, Any]:
             template_name,
             element_path as path,
             description,
+            depth,
             SPLIT(element_name, '_')[0] as plant,
             element_id as webid""",
         order_by="path",
         limit=limit
     )
 
+    # Add OFFSET if provided (for pagination)
+    if offset > 0:
+        query += f" OFFSET {offset}"
+
     results = execute_sql(query)
 
     return {
         "data": results if results else [],
-        "count": len(results) if results else 0
+        "count": len(results) if results else 0,
+        "limit": limit,
+        "offset": offset
     }
 
 
