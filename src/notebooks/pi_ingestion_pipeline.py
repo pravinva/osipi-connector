@@ -78,9 +78,6 @@ if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_
         headers={'Content-Type': 'application/x-www-form-urlencoded'},
         timeout=30,
     )
-    if token_resp.status_code >= 400:
-        print(f"[auth] OIDC token request failed: {token_resp.status_code} url={token_url}")
-        print(f"[auth] OIDC error body: {token_resp.text[:500]}")
     token_resp.raise_for_status()
     access_token = token_resp.json().get('access_token')
     if not access_token:
@@ -88,22 +85,6 @@ if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_
 
     auth_headers = {'Authorization': f'Bearer {access_token}'}
 
-    # Preflight: quickly verify the App accepts the token (avoids failing deep inside extraction)
-    token_kind = 'jwt' if access_token.startswith('ey') or access_token.count('.') == 2 else 'opaque'
-    print(f"[auth] App token kind: {token_kind}")
-
-    r = requests.post(
-        f"{pi_server_url.rstrip('/')}/piwebapi/batch",
-        headers=auth_headers,
-        json={"Requests": []},
-        timeout=30,
-        allow_redirects=False,
-    )
-    print(f"[auth] POST /piwebapi/batch -> {r.status_code}")
-    if r.is_redirect:
-        print(f"[auth] redirect Location: {r.headers.get('Location','')}")
-    if r.status_code == 401:
-        raise RuntimeError('Databricks App rejected auth token with 401')
 
     config = {
         'pi_web_api_url': pi_server_url,
