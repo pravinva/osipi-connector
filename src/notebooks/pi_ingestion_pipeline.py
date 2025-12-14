@@ -38,36 +38,50 @@ pipeline_id = spark.conf.get('pi.pipeline.id', '1')
 auth_type = spark.conf.get('pi.auth.type', 'basic')
 
 if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_url:
-    # Databricks Apps authenticate using the App's OAuth client integration (see redirect client_id).
-    # When the pipeline runs as a user, the most reliable option is to use the runtime WorkspaceClient()
-    # (which uses the run-as identity) rather than a workspace PAT or a generic M2M token.
-    from databricks.sdk import WorkspaceClient
+    # Databricks Apps require an OAuth access token that the Apps gateway accepts.
+    # In practice, the most reliable programmatic token is a JWT minted by the workspace OIDC endpoint
+    # using client-credentials (M2M) for a service principal that has CAN_USE on the App.
+    import requests
 
-    wc = WorkspaceClient()
-    auth_headers = wc.config.authenticate()
+    CLIENT_ID = dbutils.secrets.get(scope="sp-osipi", key="sp-client-id")
+    CLIENT_SECRET = dbutils.secrets.get(scope="sp-osipi", key="sp-client-secret")
+    workspace_url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get().rstrip('/')
+    token_url = f"{workspace_url}/oidc/v1/token"
+
+    token_resp = requests.post(
+        token_url,
+        data={
+            'grant_type': 'client_credentials',
+            'client_id': CLIENT_ID,
+            'client_secret': CLIENT_SECRET,
+            'scope': 'all-apis',
+        },
+        headers={'Content-Type': 'application/x-www-form-urlencoded'},
+        timeout=30,
+    )
+    token_resp.raise_for_status()
+    access_token = token_resp.json().get('access_token')
+    if not access_token:
+        raise RuntimeError('OIDC token endpoint did not return access_token')
+
+    auth_headers = {'Authorization': f'Bearer {access_token}'}
 
     # Preflight: quickly verify the App accepts the token (avoids failing deep inside extraction)
-    try:
-        import requests
-        auth_val = auth_headers.get('Authorization', '')
-        token = auth_val[7:] if auth_val.startswith('Bearer ') else ''
-        token_kind = 'jwt' if token.startswith('ey') or token.count('.') == 2 else ('pat' if token.startswith('dapi') else 'opaque')
-        print(f"[auth] App token kind: {token_kind}")
+    token_kind = 'jwt' if access_token.startswith('ey') or access_token.count('.') == 2 else 'opaque'
+    print(f"[auth] App token kind: {token_kind}")
 
-        r = requests.post(
-            f"{pi_server_url.rstrip('/')}/piwebapi/batch",
-            headers=auth_headers,
-            json={"Requests": []},
-            timeout=30,
-            allow_redirects=False,
-        )
-        print(f"[auth] POST /piwebapi/batch -> {r.status_code}")
-        if r.is_redirect:
-            print(f"[auth] redirect Location: {r.headers.get('Location','')}")
-        if r.status_code == 401:
-            raise RuntimeError('Databricks App rejected auth token with 401')
-    except Exception as e:
-        raise
+    r = requests.post(
+        f"{pi_server_url.rstrip('/')}/piwebapi/batch",
+        headers=auth_headers,
+        json={"Requests": []},
+        timeout=30,
+        allow_redirects=False,
+    )
+    print(f"[auth] POST /piwebapi/batch -> {r.status_code}")
+    if r.is_redirect:
+        print(f"[auth] redirect Location: {r.headers.get('Location','')}")
+    if r.status_code == 401:
+        raise RuntimeError('Databricks App rejected auth token with 401')
 
     config = {
         'pi_web_api_url': pi_server_url,
