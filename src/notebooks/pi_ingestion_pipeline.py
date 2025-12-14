@@ -54,6 +54,28 @@ if connection_name == 'mock_pi_connection' or 'databricksapps.com' in pi_server_
 
     auth_headers = wc.config.authenticate()
 
+    # Preflight: quickly verify the App accepts the token (avoids failing deep inside extraction)
+    try:
+        import requests
+        auth_val = auth_headers.get('Authorization', '')
+        token_kind = 'jwt' if auth_val.startswith('Bearer ey') else ('pat' if auth_val.startswith('Bearer dapi') else 'unknown')
+        print(f"[auth] App token kind: {token_kind}")
+
+        r = requests.post(
+            f"{pi_server_url.rstrip('/')}/piwebapi/batch",
+            headers=auth_headers,
+            json={"Requests": []},
+            timeout=30,
+            allow_redirects=False,
+        )
+        print(f"[auth] POST /piwebapi/batch -> {r.status_code}")
+        if r.is_redirect:
+            print(f"[auth] redirect Location: {r.headers.get('Location','')}")
+        if r.status_code == 401:
+            raise RuntimeError('Databricks App rejected auth token with 401')
+    except Exception as e:
+        raise
+
     config = {
         'pi_web_api_url': pi_server_url,
         'auth': {
