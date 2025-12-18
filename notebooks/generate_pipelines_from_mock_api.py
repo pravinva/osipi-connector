@@ -48,9 +48,11 @@ TARGET_SCHEMA = "bronze"
 CONNECTION_NAME = "mock_pi_connection"  # Will use mock API, no real auth needed
 
 # Notebook path - MUST be absolute Workspace path WITHOUT .py extension
-# For Repos: /Workspace/Repos/<username>/<repo-name>/src/notebooks/pi_ingestion_pipeline
-# For Users: /Workspace/Users/<email>/osipi-connector/src/notebooks/pi_ingestion_pipeline
-PIPELINE_NOTEBOOK_PATH = "/Workspace/Users/pravin.varma@databricks.com/osipi-connector/src/notebooks/pi_ingestion_pipeline"
+# For Repos: /Workspace/Repos/<username>/<repo-name>/src/notebooks/pi_ingestion_pipeline_from_lakeflow_source
+# For Users: /Workspace/Users/<email>/osipi-connector/src/notebooks/pi_ingestion_pipeline_from_lakeflow_source
+#
+# This notebook uses the merged Python Data Source artifact (lakeflow_connect) and writes via DLT.
+PIPELINE_NOTEBOOK_PATH = "/Workspace/Users/pravin.varma@databricks.com/osipi-connector/src/notebooks/pi_ingestion_pipeline_from_lakeflow_source"
 
 # Ingestion Mode (CONFIGURABLE)
 # - "streaming": Continuous ingestion using DLT continuous mode (real-time, auto-scaling)
@@ -137,22 +139,51 @@ print(f"Expected Pipelines: {len(SELECTED_PLANTS)} (one per plant)")
 # NOTE:
 # Databricks Apps require OAuth tokens. Use a Service Principal (client credentials)
 # that has been granted "Can Use" permission on the App.
-print("Authenticating to Databricks App using Service Principal OAuth...")
+print("Authenticating to Databricks App using Service Principal OAuth (OIDC client-credentials)...")
 print(f"URL: {MOCK_API_URL}")
-
-from databricks.sdk import WorkspaceClient
 
 CLIENT_ID = dbutils.secrets.get(scope="sp-osipi", key="sp-client-id")
 CLIENT_SECRET = dbutils.secrets.get(scope="sp-osipi", key="sp-client-secret")
-workspace_url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
 
-wc = WorkspaceClient(
-    host=workspace_url,
-    client_id=CLIENT_ID,
-    client_secret=CLIENT_SECRET,
+# IMPORTANT: In serverless / notebooks, context.apiUrl() can be a control-plane URL.
+# The OIDC token endpoint must be called on the workspace host.
+ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+workspace_host = None
+try:
+    workspace_host = 'https://' + ctx.browserHostName().get()
+except Exception:
+    workspace_host = None
+if not workspace_host:
+    try:
+        workspace_host = spark.conf.get('spark.databricks.workspaceUrl')
+    except Exception:
+        workspace_host = None
+if not workspace_host:
+    workspace_host = ctx.apiUrl().get()
+workspace_host = workspace_host.rstrip('/')
+if not workspace_host.startswith('http://') and not workspace_host.startswith('https://'):
+    workspace_host = 'https://' + workspace_host
+
+token_url = f"{workspace_host}/oidc/v1/token"
+
+token_resp = requests.post(
+    token_url,
+    data={
+        'grant_type': 'client_credentials',
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET,
+        'scope': 'all-apis',
+    },
+    headers={'Content-Type': 'application/x-www-form-urlencoded'},
+    timeout=30,
 )
 
-headers = wc.config.authenticate()
+token_resp.raise_for_status()
+access_token = token_resp.json().get('access_token')
+if not access_token:
+    raise RuntimeError('OIDC token endpoint did not return access_token')
+
+headers = {'Authorization': f'Bearer {access_token}'}
 
 print("✓ Authentication configured (SP OAuth)")
 print(f"  Client ID: {CLIENT_ID[:8]}...")
