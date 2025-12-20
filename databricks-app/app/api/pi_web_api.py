@@ -6,7 +6,7 @@ Run with: python tests/mock_pi_server.py
 Access at: http://localhost:8000
 """
 
-from fastapi import FastAPI, Query, HTTPException, Header
+from fastapi import FastAPI, Query, HTTPException, Header, Body
 from fastapi.responses import JSONResponse
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
@@ -14,6 +14,12 @@ import random
 import math
 import uvicorn
 from pydantic import BaseModel
+
+
+def _iso_z(dt: datetime) -> str:
+    # Ensure timestamps are in PI-like Zulu format (e.g., 2025-01-01T00:00:00Z)
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
 
 app = FastAPI(
     title="Mock PI Web API Server",
@@ -149,8 +155,8 @@ for plant in plant_names:
             "WebId": f"F1DP-EF-{plant}-{event_id:05d}",
             "Name": f"{plant}_{template.replace('Template', '')}_{start.strftime('%Y%m%d_%H%M')}",
             "TemplateName": template,
-            "StartTime": start.isoformat() + "Z",
-            "EndTime": (start + duration).isoformat() + "Z",
+            "StartTime": _iso_z(start),
+            "EndTime": _iso_z(start + duration),
             "PrimaryReferencedElementWebId": f"F1DP-Unit-{plant}-{unit:03d}",
             "Description": f"Event on {plant} Unit {unit:03d}",
             "CategoryNames": [template.replace("Template", "")],
@@ -258,7 +264,7 @@ def generate_realistic_timeseries(
         substituted = quality_rand >= 0.99
 
         items.append({
-            "Timestamp": current.isoformat() + "Z",
+            "Timestamp": _iso_z(current),
             "Value": round(current_value, 3),
             "UnitsAbbreviation": tag_info["units"],
             "Good": good,
@@ -485,7 +491,7 @@ def get_streamsets_recorded(
 
 
 @app.post("/piwebapi/batch")
-def batch_execute(payload: Any):
+def batch_execute(payload: Any = Body(...)):
     """
     Batch controller - Execute multiple requests in single HTTP call
 
@@ -529,8 +535,11 @@ def batch_execute(payload: Any):
                 continue
 
             if "/streams/" in resource and "/recorded" in resource:
-                parts = resource.split("/")
-                webid = parts[2] if len(parts) > 2 else None
+                # Resource can be like /piwebapi/streams/{webid}/recorded or /streams/{webid}/recorded
+                try:
+                    webid = resource.split("/streams/", 1)[1].split("/", 1)[0]
+                except Exception:
+                    webid = None
                 if not webid or webid not in MOCK_TAGS:
                     resp_obj = {"Status": 404, "Content": {"Message": f"Tag {webid} not found"}}
                     responses_list.append(resp_obj)
@@ -545,8 +554,11 @@ def batch_execute(payload: Any):
                 responses_dict[req_id] = resp_obj
 
             elif "/streams/" in resource and resource.endswith("/value"):
-                parts = resource.split("/")
-                webid = parts[2] if len(parts) > 2 else None
+                # Resource can be like /piwebapi/streams/{webid}/recorded or /streams/{webid}/recorded
+                try:
+                    webid = resource.split("/streams/", 1)[1].split("/", 1)[0]
+                except Exception:
+                    webid = None
                 if not webid or webid not in MOCK_TAGS:
                     resp_obj = {"Status": 404, "Content": {"Message": f"Tag {webid} not found"}}
                     responses_list.append(resp_obj)
@@ -558,8 +570,11 @@ def batch_execute(payload: Any):
                 responses_dict[req_id] = resp_obj
 
             elif "/streams/" in resource and resource.endswith("/summary"):
-                parts = resource.split("/")
-                webid = parts[2] if len(parts) > 2 else None
+                # Resource can be like /piwebapi/streams/{webid}/recorded or /streams/{webid}/recorded
+                try:
+                    webid = resource.split("/streams/", 1)[1].split("/", 1)[0]
+                except Exception:
+                    webid = None
                 if not webid or webid not in MOCK_TAGS:
                     resp_obj = {"Status": 404, "Content": {"Message": f"Tag {webid} not found"}}
                     responses_list.append(resp_obj)
