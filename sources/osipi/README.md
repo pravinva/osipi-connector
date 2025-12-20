@@ -19,11 +19,11 @@ Provide these parameters in your connector options.
 |---|---|---:|---|---|
 | `pi_base_url` | string | yes | Base URL of the PI Web API host (no trailing slash). Requests are made under `${pi_base_url}/piwebapi/...`. | `https://my-pi-web-api.company.com` |
 | `access_token` | string | yes | OAuth/OIDC access token used as `Authorization: Bearer <token>`. | `eyJ...` |
-| `externalOptionsAllowList` | string | yes | Comma-separated allowlist of table-specific read options. | `dataserver_webid,nameFilter,maxCount,tag_webids,default_tags,lookback_minutes,lookback_days` |
+| `externalOptionsAllowList` | string | yes | Comma-separated allowlist of table-specific read options. | `dataserver_webid,nameFilter,maxCount,startIndex,maxTotalCount,tag_webids,default_tags,lookback_minutes,lookback_days,prefer_streamset,time,startTime,endTime,summaryType,calculationBasis,timeType,summaryDuration,sampleType,sampleInterval,element_webids,default_elements,event_frame_webids,default_event_frames,searchMode` |
 
 Supported table-specific options (**this is the full definitive list**):
 
-- `dataserver_webid`
+- `dataserver_webid,nameFilter,maxCount,startIndex,maxTotalCount,tag_webids,default_tags,lookback_minutes,lookback_days,prefer_streamset,time,startTime,endTime,summaryType,calculationBasis,timeType,summaryDuration,sampleType,sampleInterval,element_webids,default_elements,event_frame_webids,default_event_frames,searchMode`
 - `nameFilter`
 - `maxCount`
 - `tag_webids`
@@ -54,7 +54,7 @@ A Unity Catalog connection for this connector can be created in two ways via the
 2. Select any existing Lakeflow Community Connector connection for this source or create a new one.
 3. Set `externalOptionsAllowList` to:
 
-`dataserver_webid,nameFilter,maxCount,tag_webids,default_tags,lookback_minutes,lookback_days`
+`dataserver_webid,nameFilter,maxCount,startIndex,maxTotalCount,tag_webids,default_tags,lookback_minutes,lookback_days,prefer_streamset,time,startTime,endTime,summaryType,calculationBasis,timeType,summaryDuration,sampleType,sampleInterval,element_webids,default_elements,event_frame_webids,default_event_frames,searchMode`
 
 The connection can also be created using the standard Unity Catalog API.
 
@@ -67,6 +67,11 @@ The connection can also be created using the standard Unity Catalog API.
 | `pi_timeseries` | Recorded/compressed values for tags | (`tag_webid`, `timestamp`) | append | Uses Stream GetRecorded time windows |
 | `pi_af_hierarchy` | AF elements | `element_webid` | snapshot | Uses AssetServer/AssetDatabase element listing |
 | `pi_event_frames` | Event Frames in a time window | (`event_frame_webid`, `start_time`) | append | Uses AssetDatabase GetEventFrames |
+| `pi_current_value` | Current (snapshot) value per tag | `tag_webid` | snapshot | Uses Stream GetValue |
+| `pi_summary` | Summary stats per tag and summary type | (`tag_webid`, `summary_type`) | snapshot | Uses Stream GetSummary |
+| `pi_streamset_recorded` | Recorded values via StreamSet (multi-tag) | (`tag_webid`, `timestamp`) | append | Uses StreamSet GetRecordedAdHoc |
+| `pi_element_attributes` | AF element attributes | (`element_webid`, `attribute_webid`) | snapshot | Uses Element GetAttributes |
+| `pi_eventframe_attributes` | Event Frame attributes | (`event_frame_webid`, `attribute_webid`) | snapshot | Uses EventFrame GetAttributes |
 
 ## Data Type Mapping
 

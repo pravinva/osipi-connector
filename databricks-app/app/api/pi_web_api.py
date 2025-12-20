@@ -8,8 +8,8 @@ Access at: http://localhost:8000
 
 from fastapi import FastAPI, Query, HTTPException, Header
 from fastapi.responses import JSONResponse
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict
+from datetime import datetime, timedelta, timezone
+from typing import Optional, List, Dict, Any
 import random
 import math
 import uvicorn
@@ -197,6 +197,12 @@ class BatchRequest(BaseModel):
 class BatchPayload(BaseModel):
     Requests: List[BatchRequest]
 
+
+def _iso_z(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
@@ -314,14 +320,15 @@ def list_dataservers():
 def list_points(
     server_webid: str,
     nameFilter: Optional[str] = "*",
-    maxCount: int = 1000
+    maxCount: int = 1000,
+    startIndex: int = 0
 ):
     """List PI Points (tags) with optional name filter"""
     # Simple wildcard matching
     filtered_tags = []
     filter_pattern = nameFilter.replace("*", "").lower()
 
-    for webid, info in MOCK_TAGS.items():
+    for webid, info in sorted(MOCK_TAGS.items(), key=lambda kv: kv[1]["name"]):
         if filter_pattern in info["name"].lower() or nameFilter == "*":
             filtered_tags.append({
                 "WebId": webid,
@@ -334,10 +341,9 @@ def list_points(
                 "Zero": info["min"]
             })
 
-            if len(filtered_tags) >= maxCount:
-                break
 
-    return {"Items": filtered_tags}
+    page = filtered_tags[startIndex : startIndex + maxCount]
+    return {"Items": page}
 
 @app.get("/piwebapi/streams/{webid}/recorded")
 def get_recorded_data(
@@ -375,8 +381,111 @@ def get_recorded_data(
         "UnitsAbbreviation": tag_info["units"]
     }
 
+@app.get("/piwebapi/streams/{webid}/value")
+def get_stream_value(webid: str, time: Optional[str] = None):
+    """Stream GetValue (mock): returns current value."""
+    if webid not in MOCK_TAGS:
+        raise HTTPException(status_code=404, detail=f"Tag {webid} not found")
+
+    try:
+        ts = datetime.now(timezone.utc) if not time else datetime.fromisoformat(time.replace('Z', ''))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid datetime format")
+
+    tag_info = MOCK_TAGS[webid]
+    start = ts - timedelta(minutes=5)
+    end = ts
+    items = generate_realistic_timeseries(tag_info, start, end, interval_seconds=60, max_count=10)
+    return items[-1] if items else {
+        "Timestamp": _iso_z(ts),
+        "UnitsAbbreviation": tag_info["units"],
+        "Good": True,
+        "Questionable": False,
+        "Substituted": False,
+        "Annotated": False,
+        "Value": None,
+    }
+
+
+@app.get("/piwebapi/streams/{webid}/summary")
+def get_stream_summary(
+    webid: str,
+    startTime: Optional[str] = None,
+    endTime: Optional[str] = None,
+    summaryType: Optional[List[str]] = Query(None),
+):
+    """Stream GetSummary (mock): supports Total and Count."""
+    if webid not in MOCK_TAGS:
+        raise HTTPException(status_code=404, detail=f"Tag {webid} not found")
+
+    try:
+        end = datetime.now(timezone.utc) if not endTime or endTime == '*' else datetime.fromisoformat(endTime.replace('Z', ''))
+        if not startTime or startTime.startswith('*-'):
+            # support '*-Nd'
+            days = 1
+            if startTime and startTime.endswith('d'):
+                days = int(startTime.replace('*-', '').replace('d', ''))
+            start = end - timedelta(days=days)
+        else:
+            start = datetime.fromisoformat(startTime.replace('Z', ''))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid datetime format")
+
+    tag_info = MOCK_TAGS[webid]
+    items = generate_realistic_timeseries(tag_info, start, end, interval_seconds=60, max_count=2000)
+    values = [i.get('Value') for i in items if i.get('Good', True) and i.get('Value') is not None]
+
+    types = summaryType or ["Total"]
+    out = []
+    for t in types:
+        t_norm = str(t)
+        if t_norm.lower() == 'count':
+            val = float(len(values))
+        else:
+            val = float(sum(values)) if values else 0.0
+        out.append({
+            "Type": t_norm,
+            "Value": {
+                "Timestamp": _iso_z(end),
+                "UnitsAbbreviation": tag_info["units"],
+                "Good": True,
+                "Questionable": False,
+                "Substituted": False,
+                "Annotated": False,
+                "Value": val,
+            },
+        })
+
+    return {"Items": out, "Links": {}}
+
+
+@app.get("/piwebapi/streamsets/recorded")
+def get_streamsets_recorded(
+    webId: List[str] = Query(...),
+    startTime: str = Query(...),
+    endTime: str = Query(...),
+    maxCount: int = 1000,
+):
+    """StreamSet GetRecordedAdHoc (mock): recorded values for multiple streams."""
+    streams = []
+    for wid in webId:
+        if wid not in MOCK_TAGS:
+            continue
+        rec = get_recorded_data(wid, startTime=startTime, endTime=endTime, maxCount=maxCount)
+        streams.append({
+            "WebId": wid,
+            "Name": MOCK_TAGS[wid]["name"],
+            "Path": MOCK_TAGS[wid]["path"],
+            "Items": rec.get("Items", []),
+            "UnitsAbbreviation": MOCK_TAGS[wid]["units"],
+            "Links": {},
+        })
+
+    return {"Items": streams, "Links": {}}
+
+
 @app.post("/piwebapi/batch")
-def batch_execute(payload: BatchPayload):
+def batch_execute(payload: Any):
     """
     Batch controller - Execute multiple requests in single HTTP call
 
@@ -384,55 +493,138 @@ def batch_execute(payload: BatchPayload):
     - 100 tags = 1 batch request instead of 100 individual requests
     - 100x performance improvement
     """
-    responses = []
+    responses_list = []
+    responses_dict: Dict[str, dict] = {}
 
-    for req in payload.Requests:
+    # Accept official PI Web API batch format (dict keyed by request id) and legacy mock format.
+    requests_by_id: Dict[str, dict] = {}
+    if isinstance(payload, dict):
+        if "Requests" in payload and isinstance(payload.get("Requests"), list):
+            for i, req in enumerate(payload.get("Requests") or []):
+                if isinstance(req, dict):
+                    requests_by_id[str(i + 1)] = req
+        else:
+            for k, v in payload.items():
+                if isinstance(v, dict) and "Method" in v and "Resource" in v:
+                    requests_by_id[str(k)] = v
+    else:
         try:
-            # Parse resource path
-            if "/streams/" in req.Resource and "/recorded" in req.Resource:
-                # Extract WebId from path like "/streams/{webid}/recorded"
-                parts = req.Resource.split("/")
+            reqs = payload.Requests  # type: ignore[attr-defined]
+            for i, req in enumerate(reqs):
+                try:
+                    requests_by_id[str(i + 1)] = req.dict()
+                except Exception:
+                    requests_by_id[str(i + 1)] = dict(req)
+        except Exception:
+            requests_by_id = {}
+
+    for req_id, req in requests_by_id.items():
+        try:
+            resource = req.get("Resource")
+            params = req.get("Parameters") or {}
+            if not resource:
+                resp_obj = {"Status": 400, "Content": {"Message": "Missing Resource"}}
+                responses_list.append(resp_obj)
+                responses_dict[req_id] = resp_obj
+                continue
+
+            if "/streams/" in resource and "/recorded" in resource:
+                parts = resource.split("/")
                 webid = parts[2] if len(parts) > 2 else None
+                if not webid or webid not in MOCK_TAGS:
+                    resp_obj = {"Status": 404, "Content": {"Message": f"Tag {webid} not found"}}
+                    responses_list.append(resp_obj)
+                    responses_dict[req_id] = resp_obj
+                    continue
+                start_time = params.get("startTime", _iso_z(datetime.now(timezone.utc)))
+                end_time = params.get("endTime", _iso_z(datetime.now(timezone.utc)))
+                max_count = int(params.get("maxCount", 1000))
+                content = get_recorded_data(webid, startTime=start_time, endTime=end_time, maxCount=max_count)
+                resp_obj = {"Status": 200, "Headers": {"Content-Type": "application/json"}, "Content": content}
+                responses_list.append(resp_obj)
+                responses_dict[req_id] = resp_obj
 
-                if webid and webid in MOCK_TAGS:
-                    params = req.Parameters or {}
-                    start_time = params.get("startTime", datetime.now().isoformat() + "Z")
-                    end_time = params.get("endTime", datetime.now().isoformat() + "Z")
-                    max_count = int(params.get("maxCount", 1000))
+            elif "/streams/" in resource and resource.endswith("/value"):
+                parts = resource.split("/")
+                webid = parts[2] if len(parts) > 2 else None
+                if not webid or webid not in MOCK_TAGS:
+                    resp_obj = {"Status": 404, "Content": {"Message": f"Tag {webid} not found"}}
+                    responses_list.append(resp_obj)
+                    responses_dict[req_id] = resp_obj
+                    continue
+                val = get_stream_value(webid, time=params.get("time"))
+                resp_obj = {"Status": 200, "Headers": {"Content-Type": "application/json"}, "Content": val}
+                responses_list.append(resp_obj)
+                responses_dict[req_id] = resp_obj
 
-                    # Generate data
-                    tag_info = MOCK_TAGS[webid]
-                    start = datetime.fromisoformat(start_time.replace('Z', ''))
-                    end = datetime.fromisoformat(end_time.replace('Z', ''))
-                    items = generate_realistic_timeseries(tag_info, start, end, max_count=max_count)
-
-                    responses.append({
-                        "Status": 200,
-                        "Headers": {"Content-Type": "application/json"},
-                        "Content": {
-                            "Items": items,
-                            "UnitsAbbreviation": tag_info["units"]
-                        }
-                    })
+            elif "/streams/" in resource and resource.endswith("/summary"):
+                parts = resource.split("/")
+                webid = parts[2] if len(parts) > 2 else None
+                if not webid or webid not in MOCK_TAGS:
+                    resp_obj = {"Status": 404, "Content": {"Message": f"Tag {webid} not found"}}
+                    responses_list.append(resp_obj)
+                    responses_dict[req_id] = resp_obj
+                    continue
+                st = params.get("summaryType")
+                if isinstance(st, str):
+                    st_list = [s for s in st.split(",") if s]
+                elif isinstance(st, list):
+                    st_list = st
                 else:
-                    responses.append({
-                        "Status": 404,
-                        "Content": {"Message": f"Tag {webid} not found"}
-                    })
+                    st_list = ["Total"]
+                summ = get_stream_summary(webid, startTime=params.get("startTime"), endTime=params.get("endTime"), summaryType=st_list)
+                resp_obj = {"Status": 200, "Headers": {"Content-Type": "application/json"}, "Content": summ}
+                responses_list.append(resp_obj)
+                responses_dict[req_id] = resp_obj
+
             else:
-                # Unsupported batch resource
-                responses.append({
-                    "Status": 501,
-                    "Content": {"Message": "Batch resource not implemented in mock"}
-                })
+                resp_obj = {"Status": 501, "Content": {"Message": f"Batch resource not implemented in mock: {resource}"}}
+                responses_list.append(resp_obj)
+                responses_dict[req_id] = resp_obj
 
         except Exception as e:
-            responses.append({
-                "Status": 500,
-                "Content": {"Message": f"Internal error: {str(e)}"}
-            })
+            resp_obj = {"Status": 500, "Content": {"Message": f"Internal error: {str(e)}"}}
+            responses_list.append(resp_obj)
+            responses_dict[req_id] = resp_obj
 
-    return {"Responses": responses}
+    out = dict(responses_dict)
+    out["Responses"] = responses_list
+    return out
+
+@app.get("/piwebapi/assetservers")
+def list_asset_servers():
+    """List available AF servers (PI AF)."""
+    return {
+        "Items": [
+            {
+                "WebId": "F1AF-Server-Primary",
+                "Name": "MockPIAF",
+                "Description": "Mock PI Asset Framework server for testing",
+                "IsConnected": True,
+                "Links": {
+                    "AssetDatabases": "https://localhost:8000/piwebapi/assetservers/F1AF-Server-Primary/assetdatabases"
+                },
+            }
+        ]
+    }
+
+
+@app.get("/piwebapi/assetservers/{server_webid}/assetdatabases")
+def list_asset_databases_for_server(server_webid: str):
+    """List AF databases under an AF server."""
+    if server_webid != "F1AF-Server-Primary":
+        raise HTTPException(status_code=404, detail=f"AssetServer {server_webid} not found")
+    return {
+        "Items": [
+            {
+                "WebId": "F1DP-DB-Production",
+                "Name": "ProductionDB",
+                "Description": "Production Asset Database",
+                "Path": "\\\\MockPIAF\\\\ProductionDB",
+            }
+        ]
+    }
+
 
 @app.get("/piwebapi/assetdatabases")
 def list_asset_databases():
@@ -509,7 +701,9 @@ def get_event_frames(
     startTime: str,
     endTime: str,
     searchMode: str = "Overlapped",
-    templateName: Optional[str] = None
+    templateName: Optional[str] = None,
+    startIndex: int = 0,
+    maxCount: int = 1000
 ):
     """
     Get Event Frames in time range
@@ -547,7 +741,7 @@ def get_event_frames(
         if include_event:
             filtered_events.append(event)
 
-    return {"Items": filtered_events}
+    return {"Items": filtered_events[startIndex : startIndex + maxCount]}
 
 @app.get("/piwebapi/eventframes/{ef_webid}/attributes")
 def get_event_frame_attributes(ef_webid: str):
@@ -675,7 +869,7 @@ def get_event_frames_post(request: EventFramesRequest):
         if len(filtered_events) >= request.maxCount:
             break
 
-    return {"Items": filtered_events}
+    return {"Items": filtered_events[startIndex : startIndex + maxCount]}
 
 # New POST endpoints for AF element traversal (fix for Databricks App auth)
 class ElementRequest(BaseModel):

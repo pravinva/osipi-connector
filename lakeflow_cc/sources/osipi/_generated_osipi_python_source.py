@@ -182,12 +182,71 @@ def register_lakeflow_source(spark):
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+    def _as_bool(v: Any, default: bool = False) -> bool:
+        if v is None:
+            return default
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return bool(v)
+        s = str(v).strip().lower()
+        if s in ("true", "t", "1", "yes", "y"):
+            return True
+        if s in ("false", "f", "0", "no", "n"):
+            return False
+        return default
+
+
+    def _try_float(v: Any) -> Optional[float]:
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except Exception:
+            return None
+
+
+    def _batch_request_dict(requests_list: List[dict]) -> dict:
+        """PI Web API docs define the batch request body as a dictionary keyed by ids."""
+        return {str(i + 1): req for i, req in enumerate(requests_list)}
+
+
+    def _batch_response_items(resp_json: dict) -> List[Tuple[str, dict]]:
+        """Normalize PI Web API batch response into a list of (request_id, response_obj)."""
+        if not isinstance(resp_json, dict):
+            return []
+
+        # Official PI Web API batch response is a dictionary keyed by request ids.
+        # Some mocks use {"Responses": [...]}.
+        if "Responses" in resp_json and isinstance(resp_json.get("Responses"), list):
+            return [(str(i + 1), r) for i, r in enumerate(resp_json.get("Responses") or [])]
+
+        # Otherwise treat top-level keys as request ids.
+        out = []
+        for k, v in resp_json.items():
+            if isinstance(v, dict) and ("Status" in v or "Content" in v or "Headers" in v):
+                out.append((str(k), v))
+        # preserve numeric ordering when possible
+        def keyfn(x):
+            try:
+                return int(x[0])
+            except Exception:
+                return 10**18
+        return sorted(out, key=keyfn)
+
+
     class LakeflowConnect:
         TABLE_DATASERVERS = "pi_dataservers"
         TABLE_POINTS = "pi_points"
         TABLE_TIMESERIES = "pi_timeseries"
         TABLE_AF_HIERARCHY = "pi_af_hierarchy"
         TABLE_EVENT_FRAMES = "pi_event_frames"
+
+        TABLE_CURRENT_VALUE = "pi_current_value"
+        TABLE_SUMMARY = "pi_summary"
+        TABLE_STREAMSET_RECORDED = "pi_streamset_recorded"
+        TABLE_ELEMENT_ATTRIBUTES = "pi_element_attributes"
+        TABLE_EVENTFRAME_ATTRIBUTES = "pi_eventframe_attributes"
 
         def __init__(self, options: Dict[str, str]) -> None:
             self.options = options
@@ -206,6 +265,11 @@ def register_lakeflow_source(spark):
                 self.TABLE_TIMESERIES,
                 self.TABLE_AF_HIERARCHY,
                 self.TABLE_EVENT_FRAMES,
+                self.TABLE_CURRENT_VALUE,
+                self.TABLE_SUMMARY,
+                self.TABLE_STREAMSET_RECORDED,
+                self.TABLE_ELEMENT_ATTRIBUTES,
+                self.TABLE_EVENTFRAME_ATTRIBUTES,
             ]
 
         def get_table_schema(self, table_name: str, table_options: Dict[str, str]) -> StructType:
@@ -225,12 +289,42 @@ def register_lakeflow_source(spark):
                     StructField("dataserver_webid", StringType(), True),
                 ])
 
-            if table_name == self.TABLE_TIMESERIES:
+            if table_name in (self.TABLE_TIMESERIES, self.TABLE_STREAMSET_RECORDED):
                 return StructType([
                     StructField("tag_webid", StringType(), False),
                     StructField("timestamp", TimestampType(), False),
                     StructField("value", DoubleType(), True),
                     StructField("good", BooleanType(), True),
+                    StructField("questionable", BooleanType(), True),
+                    StructField("substituted", BooleanType(), True),
+                    StructField("annotated", BooleanType(), True),
+                    StructField("units", StringType(), True),
+                    StructField("ingestion_timestamp", TimestampType(), False),
+                ])
+
+            if table_name == self.TABLE_CURRENT_VALUE:
+                return StructType([
+                    StructField("tag_webid", StringType(), False),
+                    StructField("timestamp", TimestampType(), True),
+                    StructField("value", DoubleType(), True),
+                    StructField("good", BooleanType(), True),
+                    StructField("questionable", BooleanType(), True),
+                    StructField("substituted", BooleanType(), True),
+                    StructField("annotated", BooleanType(), True),
+                    StructField("units", StringType(), True),
+                    StructField("ingestion_timestamp", TimestampType(), False),
+                ])
+
+            if table_name == self.TABLE_SUMMARY:
+                return StructType([
+                    StructField("tag_webid", StringType(), False),
+                    StructField("summary_type", StringType(), False),
+                    StructField("timestamp", TimestampType(), True),
+                    StructField("value", DoubleType(), True),
+                    StructField("good", BooleanType(), True),
+                    StructField("questionable", BooleanType(), True),
+                    StructField("substituted", BooleanType(), True),
+                    StructField("annotated", BooleanType(), True),
                     StructField("units", StringType(), True),
                     StructField("ingestion_timestamp", TimestampType(), False),
                 ])
@@ -262,6 +356,34 @@ def register_lakeflow_source(spark):
                     StructField("ingestion_timestamp", TimestampType(), False),
                 ])
 
+            if table_name == self.TABLE_ELEMENT_ATTRIBUTES:
+                return StructType([
+                    StructField("element_webid", StringType(), False),
+                    StructField("attribute_webid", StringType(), False),
+                    StructField("name", StringType(), True),
+                    StructField("description", StringType(), True),
+                    StructField("path", StringType(), True),
+                    StructField("type", StringType(), True),
+                    StructField("default_units_name", StringType(), True),
+                    StructField("data_reference_plugin", StringType(), True),
+                    StructField("is_configuration_item", BooleanType(), True),
+                    StructField("ingestion_timestamp", TimestampType(), False),
+                ])
+
+            if table_name == self.TABLE_EVENTFRAME_ATTRIBUTES:
+                return StructType([
+                    StructField("event_frame_webid", StringType(), False),
+                    StructField("attribute_webid", StringType(), False),
+                    StructField("name", StringType(), True),
+                    StructField("description", StringType(), True),
+                    StructField("path", StringType(), True),
+                    StructField("type", StringType(), True),
+                    StructField("default_units_name", StringType(), True),
+                    StructField("data_reference_plugin", StringType(), True),
+                    StructField("is_configuration_item", BooleanType(), True),
+                    StructField("ingestion_timestamp", TimestampType(), False),
+                ])
+
             raise ValueError(f"Unknown table: {table_name}")
 
         def read_table_metadata(self, table_name: str, table_options: Dict[str, str]) -> Dict:
@@ -271,10 +393,20 @@ def register_lakeflow_source(spark):
                 return {"primary_keys": ["webid"], "cursor_field": None, "ingestion_type": "snapshot"}
             if table_name == self.TABLE_TIMESERIES:
                 return {"primary_keys": ["tag_webid", "timestamp"], "cursor_field": "timestamp", "ingestion_type": "append"}
+            if table_name == self.TABLE_STREAMSET_RECORDED:
+                return {"primary_keys": ["tag_webid", "timestamp"], "cursor_field": "timestamp", "ingestion_type": "append"}
+            if table_name == self.TABLE_CURRENT_VALUE:
+                return {"primary_keys": ["tag_webid"], "cursor_field": None, "ingestion_type": "snapshot"}
+            if table_name == self.TABLE_SUMMARY:
+                return {"primary_keys": ["tag_webid", "summary_type"], "cursor_field": None, "ingestion_type": "snapshot"}
             if table_name == self.TABLE_AF_HIERARCHY:
                 return {"primary_keys": ["element_webid"], "cursor_field": None, "ingestion_type": "snapshot"}
             if table_name == self.TABLE_EVENT_FRAMES:
                 return {"primary_keys": ["event_frame_webid", "start_time"], "cursor_field": "start_time", "ingestion_type": "append"}
+            if table_name == self.TABLE_ELEMENT_ATTRIBUTES:
+                return {"primary_keys": ["element_webid", "attribute_webid"], "cursor_field": None, "ingestion_type": "snapshot"}
+            if table_name == self.TABLE_EVENTFRAME_ATTRIBUTES:
+                return {"primary_keys": ["event_frame_webid", "attribute_webid"], "cursor_field": None, "ingestion_type": "snapshot"}
             raise ValueError(f"Unknown table: {table_name}")
 
         def read_table(self, table_name: str, start_offset: dict, table_options: Dict[str, str]) -> Tuple[Iterator[dict], dict]:
@@ -286,10 +418,20 @@ def register_lakeflow_source(spark):
                 return iter(self._read_points(table_options)), {"offset": "done"}
             if table_name == self.TABLE_TIMESERIES:
                 return self._read_timeseries(start_offset, table_options)
+            if table_name == self.TABLE_STREAMSET_RECORDED:
+                return self._read_streamset_recorded(start_offset, table_options)
+            if table_name == self.TABLE_CURRENT_VALUE:
+                return iter(self._read_current_value(table_options)), {"offset": "done"}
+            if table_name == self.TABLE_SUMMARY:
+                return iter(self._read_summary(table_options)), {"offset": "done"}
             if table_name == self.TABLE_AF_HIERARCHY:
                 return iter(self._read_af_hierarchy()), {"offset": "done"}
             if table_name == self.TABLE_EVENT_FRAMES:
                 return self._read_event_frames(start_offset, table_options)
+            if table_name == self.TABLE_ELEMENT_ATTRIBUTES:
+                return iter(self._read_element_attributes(table_options)), {"offset": "done"}
+            if table_name == self.TABLE_EVENTFRAME_ATTRIBUTES:
+                return iter(self._read_eventframe_attributes(table_options)), {"offset": "done"}
 
             raise ValueError(f"Unknown table: {table_name}")
 
@@ -335,21 +477,26 @@ def register_lakeflow_source(spark):
 
             self._auth_resolved = True
 
-        def _get_json(self, path: str, params: Optional[Dict] = None) -> dict:
+        def _get_json(self, path: str, params: Optional[Any] = None) -> dict:
             url = f"{self.base_url}{path}"
             r = self.session.get(url, params=params, timeout=60)
             r.raise_for_status()
             return r.json()
 
-        def _post_json(self, path: str, payload: dict) -> dict:
+        def _post_json(self, path: str, payload: Any) -> dict:
             url = f"{self.base_url}{path}"
             r = self.session.post(url, json=payload, timeout=120)
             r.raise_for_status()
             return r.json()
 
+        def _batch_execute(self, requests_list: List[dict]) -> List[Tuple[str, dict]]:
+            payload = _batch_request_dict(requests_list)
+            resp_json = self._post_json("/piwebapi/batch", payload)
+            return _batch_response_items(resp_json)
+
         def _read_dataservers(self) -> List[dict]:
             data = self._get_json("/piwebapi/dataservers")
-            items = data.get("Items", [])
+            items = data.get("Items", []) or []
             return [{"webid": i.get("WebId"), "name": i.get("Name")} for i in items if i.get("WebId")]
 
         def _read_points(self, table_options: Dict[str, str]) -> List[dict]:
@@ -358,32 +505,46 @@ def register_lakeflow_source(spark):
                 return []
             server_webid = table_options.get("dataserver_webid") or dataservers[0]["webid"]
 
-            params: Dict[str, str] = {"maxCount": str(table_options.get("maxCount", 10000))}
+            page_size = int(table_options.get("maxCount", 1000))
+            start_index = int(table_options.get("startIndex", 0))
+            max_total = int(table_options.get("maxTotalCount", 100000))
             name_filter = table_options.get("nameFilter")
-            if name_filter:
-                params["nameFilter"] = name_filter
 
-            data = self._get_json(f"/piwebapi/dataservers/{server_webid}/points", params=params)
-            items = data.get("Items", [])
             out: List[dict] = []
-            for p in items:
-                out.append({
-                    "webid": p.get("WebId"),
-                    "name": p.get("Name"),
-                    "descriptor": p.get("Descriptor", ""),
-                    "engineering_units": p.get("EngineeringUnits", ""),
-                    "path": p.get("Path", ""),
-                    "dataserver_webid": server_webid,
-                })
+            while start_index < max_total:
+                params: Dict[str, str] = {"maxCount": str(page_size), "startIndex": str(start_index)}
+                if name_filter:
+                    params["nameFilter"] = str(name_filter)
+
+                data = self._get_json(f"/piwebapi/dataservers/{server_webid}/points", params=params)
+                items = data.get("Items", []) or []
+
+                for p in items:
+                    out.append({
+                        "webid": p.get("WebId"),
+                        "name": p.get("Name"),
+                        "descriptor": p.get("Descriptor", ""),
+                        "engineering_units": p.get("EngineeringUnits", ""),
+                        "path": p.get("Path", ""),
+                        "dataserver_webid": server_webid,
+                    })
+
+                if len(items) < page_size:
+                    break
+                start_index += page_size
+
             return [r for r in out if r.get("webid")]
 
-        def _read_timeseries(self, start_offset: dict, table_options: Dict[str, str]) -> Tuple[Iterator[dict], dict]:
+        def _resolve_tag_webids(self, table_options: Dict[str, str]) -> List[str]:
             tag_webids_csv = table_options.get("tag_webids") or self.options.get("tag_webids") or ""
-            tag_webids = [t.strip() for t in tag_webids_csv.split(",") if t.strip()]
-            if not tag_webids:
-                pts = self._read_points(table_options)
-                tag_webids = [p["webid"] for p in pts[: int(table_options.get("default_tags", 50))]]
+            tag_webids = [t.strip() for t in str(tag_webids_csv).split(",") if t.strip()]
+            if tag_webids:
+                return tag_webids
+            pts = self._read_points(table_options)
+            return [p["webid"] for p in pts[: int(table_options.get("default_tags", 50))]]
 
+        def _read_timeseries(self, start_offset: dict, table_options: Dict[str, str]) -> Tuple[Iterator[dict], dict]:
+            tag_webids = self._resolve_tag_webids(table_options)
             now = _utcnow()
 
             start = None
@@ -401,8 +562,40 @@ def register_lakeflow_source(spark):
             start_str = _isoformat_z(start)
             end_str = _isoformat_z(now)
             max_count = int(table_options.get("maxCount", 1000))
+            ingest_ts = _utcnow()
 
-            requests_list = [
+            prefer_streamset = _as_bool(table_options.get("prefer_streamset", True), default=True)
+
+            # Preferred: StreamSet GetRecordedAdHoc for multi-tag reads.
+            if prefer_streamset and len(tag_webids) > 1:
+                def iterator() -> Iterator[dict]:
+                    params: List[Tuple[str, str]] = [("webId", w) for w in tag_webids]
+                    params += [("startTime", start_str), ("endTime", end_str), ("maxCount", str(max_count))]
+                    data = self._get_json("/piwebapi/streamsets/recorded", params=params)
+                    for stream in data.get("Items", []) or []:
+                        webid = stream.get("WebId")
+                        if not webid:
+                            continue
+                        for item in stream.get("Items", []) or []:
+                            ts = item.get("Timestamp")
+                            if not ts:
+                                continue
+                            yield {
+                                "tag_webid": webid,
+                                "timestamp": _parse_ts(ts),
+                                "value": _try_float(item.get("Value")),
+                                "good": _as_bool(item.get("Good"), default=True),
+                                "questionable": _as_bool(item.get("Questionable"), default=False),
+                                "substituted": _as_bool(item.get("Substituted"), default=False),
+                                "annotated": _as_bool(item.get("Annotated"), default=False),
+                                "units": item.get("UnitsAbbreviation", ""),
+                                "ingestion_timestamp": ingest_ts,
+                            }
+
+                return iterator(), {"offset": end_str}
+
+            # Fallback: Batch execute many Stream GetRecorded calls.
+            reqs = [
                 {
                     "Method": "GET",
                     "Resource": f"/piwebapi/streams/{webid}/recorded",
@@ -411,35 +604,179 @@ def register_lakeflow_source(spark):
                 for webid in tag_webids
             ]
 
-            batch = self._post_json("/piwebapi/batch", {"Requests": requests_list})
-            responses = batch.get("Responses", [])
-            ingest_ts = _utcnow()
+            responses = self._batch_execute(reqs)
 
+            # Preserve request order (1..N) to map back to tag_webids.
             def iterator() -> Iterator[dict]:
-                for idx, resp in enumerate(responses):
+                for idx, (_rid, resp) in enumerate(responses):
                     if resp.get("Status") != 200:
                         continue
                     webid = tag_webids[idx] if idx < len(tag_webids) else None
-                    content = resp.get("Content", {})
-                    for item in content.get("Items", []):
+                    if not webid:
+                        continue
+                    content = resp.get("Content", {}) or {}
+                    for item in content.get("Items", []) or []:
                         ts = item.get("Timestamp")
-                        if not ts or not webid:
+                        if not ts:
                             continue
                         yield {
                             "tag_webid": webid,
                             "timestamp": _parse_ts(ts),
-                            "value": float(item.get("Value")) if item.get("Value") is not None else None,
-                            "good": bool(item.get("Good", True)),
+                            "value": _try_float(item.get("Value")),
+                            "good": _as_bool(item.get("Good"), default=True),
+                            "questionable": _as_bool(item.get("Questionable"), default=False),
+                            "substituted": _as_bool(item.get("Substituted"), default=False),
+                            "annotated": _as_bool(item.get("Annotated"), default=False),
                             "units": item.get("UnitsAbbreviation", ""),
                             "ingestion_timestamp": ingest_ts,
                         }
 
             return iterator(), {"offset": end_str}
 
+        def _read_streamset_recorded(self, start_offset: dict, table_options: Dict[str, str]) -> Tuple[Iterator[dict], dict]:
+            # Explicit StreamSet recorded table (same output schema as pi_timeseries)
+            tag_webids = self._resolve_tag_webids(table_options)
+            now = _utcnow()
+
+            start = None
+            if start_offset and isinstance(start_offset, dict):
+                off = start_offset.get("offset")
+                if isinstance(off, str) and off:
+                    try:
+                        start = _parse_ts(off)
+                    except Exception:
+                        start = None
+            if start is None:
+                lookback_minutes = int(table_options.get("lookback_minutes", 60))
+                start = now - timedelta(minutes=lookback_minutes)
+
+            start_str = _isoformat_z(start)
+            end_str = _isoformat_z(now)
+            max_count = int(table_options.get("maxCount", 1000))
+            ingest_ts = _utcnow()
+
+            def iterator() -> Iterator[dict]:
+                params: List[Tuple[str, str]] = [("webId", w) for w in tag_webids]
+                params += [("startTime", start_str), ("endTime", end_str), ("maxCount", str(max_count))]
+                data = self._get_json("/piwebapi/streamsets/recorded", params=params)
+                for stream in data.get("Items", []) or []:
+                    webid = stream.get("WebId")
+                    if not webid:
+                        continue
+                    for item in stream.get("Items", []) or []:
+                        ts = item.get("Timestamp")
+                        if not ts:
+                            continue
+                        yield {
+                            "tag_webid": webid,
+                            "timestamp": _parse_ts(ts),
+                            "value": _try_float(item.get("Value")),
+                            "good": _as_bool(item.get("Good"), default=True),
+                            "questionable": _as_bool(item.get("Questionable"), default=False),
+                            "substituted": _as_bool(item.get("Substituted"), default=False),
+                            "annotated": _as_bool(item.get("Annotated"), default=False),
+                            "units": item.get("UnitsAbbreviation", ""),
+                            "ingestion_timestamp": ingest_ts,
+                        }
+
+            return iterator(), {"offset": end_str}
+
+        def _read_current_value(self, table_options: Dict[str, str]) -> List[dict]:
+            tag_webids = self._resolve_tag_webids(table_options)
+            time_param = table_options.get("time")
+
+            reqs: List[dict] = []
+            for w in tag_webids:
+                params: Dict[str, str] = {}
+                if time_param:
+                    params["time"] = str(time_param)
+                reqs.append({"Method": "GET", "Resource": f"/piwebapi/streams/{w}/value", "Parameters": params})
+
+            responses = self._batch_execute(reqs)
+            ingest_ts = _utcnow()
+            out: List[dict] = []
+
+            for idx, (_rid, resp) in enumerate(responses):
+                if resp.get("Status") != 200:
+                    continue
+                webid = tag_webids[idx] if idx < len(tag_webids) else None
+                if not webid:
+                    continue
+                v = resp.get("Content", {}) or {}
+                ts = v.get("Timestamp")
+                out.append({
+                    "tag_webid": webid,
+                    "timestamp": _parse_ts(ts) if ts else None,
+                    "value": _try_float(v.get("Value")),
+                    "good": _as_bool(v.get("Good"), default=True),
+                    "questionable": _as_bool(v.get("Questionable"), default=False),
+                    "substituted": _as_bool(v.get("Substituted"), default=False),
+                    "annotated": _as_bool(v.get("Annotated"), default=False),
+                    "units": v.get("UnitsAbbreviation", ""),
+                    "ingestion_timestamp": ingest_ts,
+                })
+
+            return out
+
+        def _read_summary(self, table_options: Dict[str, str]) -> List[dict]:
+            # NOTE: The PI Web API supports multiple instances of summaryType.
+            # We implement the API-correct approach (repeat summaryType in query params) and keep this table snapshot-like.
+            tag_webids = self._resolve_tag_webids(table_options)
+            start_time = table_options.get("startTime")
+            end_time = table_options.get("endTime")
+            summary_types_csv = table_options.get("summaryType", "Total")
+            summary_types = [s.strip() for s in str(summary_types_csv).split(",") if s.strip()]
+            if not summary_types:
+                summary_types = ["Total"]
+
+            passthrough_keys = ("calculationBasis", "timeType", "summaryDuration", "sampleType", "sampleInterval", "timeZone", "filterExpression")
+            passthrough = {k: str(table_options.get(k)) for k in passthrough_keys if table_options.get(k) is not None}
+
+            ingest_ts = _utcnow()
+            out: List[dict] = []
+
+            for w in tag_webids:
+                params: List[Tuple[str, str]] = []
+                if start_time:
+                    params.append(("startTime", str(start_time)))
+                if end_time:
+                    params.append(("endTime", str(end_time)))
+                for st in summary_types:
+                    params.append(("summaryType", st))
+                for k, v in passthrough.items():
+                    params.append((k, v))
+
+                data = self._get_json(f"/piwebapi/streams/{w}/summary", params=params)
+                for item in data.get("Items", []) or []:
+                    stype = item.get("Type") or ""
+                    v = item.get("Value", {}) or {}
+                    ts = v.get("Timestamp")
+                    out.append({
+                        "tag_webid": w,
+                        "summary_type": str(stype),
+                        "timestamp": _parse_ts(ts) if ts else None,
+                        "value": _try_float(v.get("Value")),
+                        "good": _as_bool(v.get("Good"), default=True),
+                        "questionable": _as_bool(v.get("Questionable"), default=False),
+                        "substituted": _as_bool(v.get("Substituted"), default=False),
+                        "annotated": _as_bool(v.get("Annotated"), default=False),
+                        "units": v.get("UnitsAbbreviation", ""),
+                        "ingestion_timestamp": ingest_ts,
+                    })
+
+            return out
+
+        def _read_assetservers(self) -> List[dict]:
+            data = self._get_json("/piwebapi/assetservers")
+            return data.get("Items", []) or []
+
+        def _read_assetdatabases(self, assetserver_webid: str) -> List[dict]:
+            data = self._get_json(f"/piwebapi/assetservers/{assetserver_webid}/assetdatabases")
+            return data.get("Items", []) or []
+
         def _read_af_hierarchy(self) -> List[dict]:
-            db_list = self._post_json("/piwebapi/assetdatabases/list", {})
-            dbs = db_list.get("Items", [])
-            if not dbs:
+            assetservers = self._read_assetservers()
+            if not assetservers:
                 return []
 
             out: List[dict] = []
@@ -465,17 +802,25 @@ def register_lakeflow_source(spark):
                     if children:
                         walk(children, webid, depth + 1)
 
-            for db in dbs:
-                db_webid = db.get("WebId")
-                if not db_webid:
+            for srv in assetservers:
+                srv_webid = srv.get("WebId")
+                if not srv_webid:
                     continue
-                roots = self._post_json("/piwebapi/assetdatabases/elements", {"db_webid": db_webid}).get("Items", [])
-                walk(roots, parent_webid="", depth=0)
+                for db in self._read_assetdatabases(srv_webid):
+                    db_webid = db.get("WebId")
+                    if not db_webid:
+                        continue
+                    roots = self._get_json(
+                        f"/piwebapi/assetdatabases/{db_webid}/elements",
+                        params={"searchFullHierarchy": "true"},
+                    ).get("Items", []) or []
+                    walk(roots, parent_webid="", depth=0)
 
             return out
 
         def _read_event_frames(self, start_offset: dict, table_options: Dict[str, str]) -> Tuple[Iterator[dict], dict]:
             now = _utcnow()
+
             start = None
             if start_offset and isinstance(start_offset, dict):
                 off = start_offset.get("offset")
@@ -491,21 +836,40 @@ def register_lakeflow_source(spark):
             start_str = _isoformat_z(start)
             end_str = _isoformat_z(now)
 
-            db_list = self._post_json("/piwebapi/assetdatabases/list", {})
-            dbs = db_list.get("Items", [])
-            if not dbs:
+            page_size = int(table_options.get("maxCount", 1000))
+            base_start_index = int(table_options.get("startIndex", 0))
+            search_mode = table_options.get("searchMode", "Overlapped")
+
+            assetservers = self._read_assetservers()
+            if not assetservers:
                 return iter(()), {"offset": end_str}
 
             all_events: List[dict] = []
-            for db in dbs:
-                db_webid = db.get("WebId")
-                if not db_webid:
+
+            for srv in assetservers:
+                srv_webid = srv.get("WebId")
+                if not srv_webid:
                     continue
-                resp = self._post_json(
-                    "/piwebapi/assetdatabases/eventframes",
-                    {"db_webid": db_webid, "startTime": start_str, "endTime": end_str, "searchMode": "Overlapped"},
-                )
-                all_events.extend(resp.get("Items", []))
+                for db in self._read_assetdatabases(srv_webid):
+                    db_webid = db.get("WebId")
+                    if not db_webid:
+                        continue
+
+                    start_index = base_start_index
+                    while True:
+                        params = {
+                            "startTime": start_str,
+                            "endTime": end_str,
+                            "searchMode": str(search_mode),
+                            "startIndex": str(start_index),
+                            "maxCount": str(page_size),
+                        }
+                        resp = self._get_json(f"/piwebapi/assetdatabases/{db_webid}/eventframes", params=params)
+                        items = resp.get("Items", []) or []
+                        all_events.extend(items)
+                        if len(items) < page_size:
+                            break
+                        start_index += page_size
 
             ingest_ts = _utcnow()
 
@@ -530,6 +894,84 @@ def register_lakeflow_source(spark):
                     }
 
             return iterator(), {"offset": end_str}
+
+        def _read_element_attributes(self, table_options: Dict[str, str]) -> List[dict]:
+            element_csv = table_options.get("element_webids", "")
+            element_webids = [e.strip() for e in str(element_csv).split(",") if e.strip()]
+            if not element_webids:
+                af = self._read_af_hierarchy()
+                element_webids = [r.get("element_webid") for r in af[: int(table_options.get("default_elements", 10))] if r.get("element_webid")]
+
+            name_filter = table_options.get("nameFilter")
+            page_size = int(table_options.get("maxCount", 1000))
+            start_index = int(table_options.get("startIndex", 0))
+
+            ingest_ts = _utcnow()
+            out: List[dict] = []
+            for ew in element_webids:
+                params: Dict[str, str] = {"maxCount": str(page_size), "startIndex": str(start_index)}
+                if name_filter:
+                    params["nameFilter"] = str(name_filter)
+                data = self._get_json(f"/piwebapi/elements/{ew}/attributes", params=params)
+                for a in data.get("Items", []) or []:
+                    aw = a.get("WebId")
+                    if not aw:
+                        continue
+                    out.append({
+                        "element_webid": ew,
+                        "attribute_webid": aw,
+                        "name": a.get("Name", ""),
+                        "description": a.get("Description", ""),
+                        "path": a.get("Path", ""),
+                        "type": a.get("Type", ""),
+                        "default_units_name": a.get("DefaultUnitsName", ""),
+                        "data_reference_plugin": a.get("DataReferencePlugIn", ""),
+                        "is_configuration_item": _as_bool(a.get("IsConfigurationItem"), default=False),
+                        "ingestion_timestamp": ingest_ts,
+                    })
+            return out
+
+        def _read_eventframe_attributes(self, table_options: Dict[str, str]) -> List[dict]:
+            ef_csv = table_options.get("event_frame_webids", "")
+            ef_webids = [e.strip() for e in str(ef_csv).split(",") if e.strip()]
+            if not ef_webids:
+                # sample event frames
+                records, _ = self._read_event_frames({}, {"lookback_days": table_options.get("lookback_days", 30)})
+                tmp = []
+                for i, r in enumerate(records):
+                    tmp.append(r)
+                    if i >= int(table_options.get("default_event_frames", 10)) - 1:
+                        break
+                ef_webids = [r.get("event_frame_webid") for r in tmp if r.get("event_frame_webid")]
+
+            name_filter = table_options.get("nameFilter")
+            page_size = int(table_options.get("maxCount", 1000))
+            start_index = int(table_options.get("startIndex", 0))
+
+            ingest_ts = _utcnow()
+            out: List[dict] = []
+            for efw in ef_webids:
+                params: Dict[str, str] = {"maxCount": str(page_size), "startIndex": str(start_index)}
+                if name_filter:
+                    params["nameFilter"] = str(name_filter)
+                data = self._get_json(f"/piwebapi/eventframes/{efw}/attributes", params=params)
+                for a in data.get("Items", []) or []:
+                    aw = a.get("WebId")
+                    if not aw:
+                        continue
+                    out.append({
+                        "event_frame_webid": efw,
+                        "attribute_webid": aw,
+                        "name": a.get("Name", ""),
+                        "description": a.get("Description", ""),
+                        "path": a.get("Path", ""),
+                        "type": a.get("Type", ""),
+                        "default_units_name": a.get("DefaultUnitsName", ""),
+                        "data_reference_plugin": a.get("DataReferencePlugIn", ""),
+                        "is_configuration_item": _as_bool(a.get("IsConfigurationItem"), default=False),
+                        "ingestion_timestamp": ingest_ts,
+                    })
+            return out
 
 
     ########################################################

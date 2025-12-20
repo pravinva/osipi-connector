@@ -33,6 +33,13 @@ This connector exposes PI Web API resources as a small set of **tables** (object
 | `pi_event_frames` | Event Frames in a time window | AssetDatabase **GetEventFrames** (`GET assetdatabases/{webId}/eventframes`) ([AssetDatabase GetEventFrames](https://docs.aveva.com/bundle/pi-web-api-reference-1.19.1/page/help/controllers/assetdatabase/actions/geteventframes.html)) |
 
 Notes:
+
+| `pi_current_value` | Current (snapshot) value per tag | Stream **GetValue** (`GET streams/{webId}/value`) ([Stream GetValue](https://docs.aveva.com/bundle/pi-web-api-reference-1.19.1/page/help/controllers/stream/actions/getvalue.html)) |
+| `pi_summary` | Summary stats per tag | Stream **GetSummary** (`GET streams/{webId}/summary`) ([Stream GetSummary](https://docs.aveva.com/bundle/pi-web-api-reference-1.19.1/page/help/controllers/stream/actions/getsummary.html)) |
+| `pi_streamset_recorded` | Recorded values via StreamSet (multi-tag) | StreamSet **GetRecordedAdHoc** (`GET streamsets/recorded`) ([StreamSet GetRecordedAdHoc](https://docs.aveva.com/bundle/pi-web-api-reference-1.19.1/page/help/controllers/streamset/actions/getrecordedadhoc.html)) |
+| `pi_element_attributes` | AF element attributes | Element **GetAttributes** (`GET elements/{webId}/attributes`) ([Element GetAttributes](https://docs.aveva.com/bundle/pi-web-api-reference-1.19.1/page/help/controllers/element/actions/getattributes.html)) |
+| `pi_eventframe_attributes` | Event Frame attributes | EventFrame **GetAttributes** (`GET eventframes/{webId}/attributes`) ([EventFrame GetAttributes](https://docs.aveva.com/bundle/pi-web-api-reference-1.19.1/page/help/controllers/eventframe/actions/getattributes.html)) |
+
 - The PI Web API docs show request paths relative to the PI Web API root. In practice, requests are made under the server’s PI Web API base path, typically `https://{piwebapifqdn}/piwebapi/...` (see sample `Links.Self` values in action pages like [DataServer List](https://docs.aveva.com/bundle/pi-web-api-reference-1.19.1/page/help/controllers/dataserver/actions/list.html)).
 
 ---
