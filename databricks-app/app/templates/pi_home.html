@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PI Web API - {{ server_name }}</title>
+    <link rel="stylesheet" href="/static/css/pi_style.css">
+    <link rel="icon" type="image/x-icon" href="/static/images/favicon.ico">
+</head>
+<body>
+    <header class="pi-header">
+        <div class="container">
+            <div class="logo-section">
+                <div class="pi-logo">PI</div>
+                <h1>PI Web API</h1>
+            </div>
+            <div class="version-info">
+                <span class="badge">{{ version }}</span>
+                <span class="server-name">{{ server_name }}</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="hero">
+            <h2>Welcome to PI Web API</h2>
+            <p class="subtitle">RESTful interface for the PI System - Powered by Databricks Lakeflow</p>
+        </section>
+
+        <section class="card-grid">
+            <div class="card">
+                <div class="card-icon api-icon">📡</div>
+                <h3>API Documentation</h3>
+                <p>Explore the complete PI Web API surface with interactive Swagger UI</p>
+                <a href="/docs" class="btn btn-primary">View API Docs</a>
+            </div>
+
+            <div class="card">
+                <div class="card-icon dashboard-icon">📊</div>
+                <h3>Lakehouse Dashboard</h3>
+                <p>Monitor real-time ingestion status and data quality metrics</p>
+                <a href="/ingestion" class="btn btn-primary">Open Dashboard</a>
+            </div>
+
+            <div class="card">
+                <div class="card-icon data-icon">🏭</div>
+                <h3>AF Hierarchy Explorer</h3>
+                <p>Browse asset framework structure with interactive tree view</p>
+                <a href="/data/af-hierarchy" class="btn btn-primary">View Hierarchy</a>
+            </div>
+
+            <div class="card">
+                <div class="card-icon data-icon">⚠️</div>
+                <h3>Events & Alarms</h3>
+                <p>Visual analytics for events, alarms, and process notifications</p>
+                <a href="/data/events" class="btn btn-primary">View Dashboard</a>
+            </div>
+
+            <div class="card" style="background: linear-gradient(135deg, #FF3621 0%, #F7B32B 100%); color: white;">
+                <div class="card-icon">⚙️</div>
+                <h3 style="color: white;">Server Configuration</h3>
+                <p style="color: white;">Adjust tags, AF hierarchy, events, and alarms dynamically</p>
+                <a href="/config" class="btn btn-primary" style="background: white; color: #1B3139; border: none;">Configure Server</a>
+            </div>
+        </section>
+
+        <section class="features">
+            <h3>Key Features</h3>
+            <div class="feature-list">
+                <div class="feature-item">
+                    <span class="checkmark">✓</span>
+                    <strong>Time-Series Data:</strong> Recorded, interpolated, and plot data
+                </div>
+                <div class="feature-item">
+                    <span class="checkmark">✓</span>
+                    <strong>AF Hierarchy:</strong> Navigate asset structures and relationships
+                </div>
+                <div class="feature-item">
+                    <span class="checkmark">✓</span>
+                    <strong>Event Frames:</strong> Process events, batch runs, and alarms
+                </div>
+                <div class="feature-item">
+                    <span class="checkmark">✓</span>
+                    <strong>Batch Operations:</strong> Execute multiple requests efficiently
+                </div>
+                <div class="feature-item">
+                    <span class="checkmark">✓</span>
+                    <strong>Real-time Integration:</strong> Continuous sync to Unity Catalog
+                </div>
+                <div class="feature-item">
+                    <span class="checkmark">✓</span>
+                    <strong>Quality Flags:</strong> Good, Questionable, Substituted indicators
+                </div>
+            </div>
+        </section>
+
+        <section class="quick-links">
+            <h3>Quick Links</h3>
+            <div class="link-grid">
+                <a href="/piwebapi/assetdatabases" class="link-item">
+                    <strong>Asset Databases</strong>
+                    <span>Browse AF databases</span>
+                </a>
+                <a href="/piwebapi/dataservers" class="link-item">
+                    <strong>Data Servers</strong>
+                    <span>View PI Data Archives</span>
+                </a>
+                <a href="/docs#/default/api_batch_piwebapi_batch_post" class="link-item">
+                    <strong>Batch Controller</strong>
+                    <span>Bulk operations</span>
+                </a>
+                <a href="/health" class="link-item">
+                    <strong>Health Check</strong>
+                    <span>System status</span>
+                </a>
+                <a href="/config" class="link-item">
+                    <strong>Configuration</strong>
+                    <span>Adjust mock server settings</span>
+                </a>
+            </div>
+        </section>
+
+        <section class="stats-bar">
+            <div class="stat">
+                <div class="stat-value">3,200</div>
+                <div class="stat-label">Active Tags</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">524</div>
+                <div class="stat-label">AF Elements</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">48</div>
+                <div class="stat-label">Event Frames</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">99.8%</div>
+                <div class="stat-label">Uptime</div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="pi-footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4>PI Web API</h4>
+                    <p>Mock Server for Databricks Lakeflow Connector</p>
+                </div>
+                <div class="footer-section">
+                    <h4>Resources</h4>
+                    <ul>
+                        <li><a href="/docs">API Documentation</a></li>
+                        <li><a href="/redoc">API Reference</a></li>
+                        <li><a href="/ingestion">Dashboard</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Integration</h4>
+                    <ul>
+                        <li>Databricks Unity Catalog</li>
+                        <li>Delta Lake Storage</li>
+                        <li>Real-time Streaming</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 PI Web API Lakeflow Connector | Built for Databricks Hackathon</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
