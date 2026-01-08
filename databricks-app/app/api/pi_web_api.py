@@ -444,7 +444,8 @@ def get_recorded_data(
     tag_info = MOCK_TAGS[webid]
 
     # Generate realistic time-series
-    items = generate_realistic_timeseries(tag_info, start, end, interval_seconds=60, max_count=maxCount)
+    # Changed from 60 to 10 seconds for pagination testing (360 events/hour instead of 60)
+    items = generate_realistic_timeseries(tag_info, start, end, interval_seconds=10, max_count=maxCount)
 
     return {
         "Items": items,
