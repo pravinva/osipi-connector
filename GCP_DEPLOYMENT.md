@@ -44,12 +44,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app ./app
+COPY mock_piwebapi ./mock_piwebapi
 
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["uvicorn", "app.main:app", "--host=0.0.0.0", "--port=8080"]
+CMD ["uvicorn", "mock_piwebapi.main:app", "--host=0.0.0.0", "--port=8080"]
 ```
 
 ### 3. Deploy to Google Cloud Run
@@ -247,7 +247,7 @@ With `interval_seconds=10`, the mock server generates **361 events per hour**, e
 
 **Scenario 1: Heavy Pagination (maxCount=10)**
 ```bash
-curl -H "Authorization: Bearer dosee0e6290a833d381937fa4b8fc150682b" \ # gitleaks:allow
+curl -H "Authorization: Bearer <token>" \
   "https://mock-piwebapi-912141448724.us-central1.run.app/piwebapi/streams/F1DP-Adelaide-U001-Curr-04008/recorded?startTime=*-1h&endTime=*&maxCount=10" \
   | python3 -c "import sys, json; data = json.load(sys.stdin); print(f'Events: {len(data.get(\"Items\", []))}')"
 ```
@@ -255,7 +255,7 @@ Expected: 10 events (36 pages total for 361 events)
 
 **Scenario 2: Moderate Pagination (maxCount=100)**
 ```bash
-curl -H "Authorization: Bearer dosee0e6290a833d381937fa4b8fc150682b" \ # gitleaks:allow
+curl -H "Authorization: Bearer <token>" \
   "https://mock-piwebapi-912141448724.us-central1.run.app/piwebapi/streams/F1DP-Adelaide-U001-Curr-04008/recorded?startTime=*-1h&endTime=*&maxCount=100" \
   | python3 -c "import sys, json; data = json.load(sys.stdin); print(f'Events: {len(data.get(\"Items\", []))}')"
 ```
@@ -263,32 +263,11 @@ Expected: 100 events (4 pages total for 361 events)
 
 **Scenario 3: No Pagination (maxCount=1000)**
 ```bash
-curl -H "Authorization: Bearer dosee0e6290a833d381937fa4b8fc150682b" \ # gitleaks:allow
+curl -H "Authorization: Bearer <token>" \
   "https://mock-piwebapi-912141448724.us-central1.run.app/piwebapi/streams/F1DP-Adelaide-U001-Curr-04008/recorded?startTime=*-1h&endTime=*&maxCount=1000" \
   | python3 -c "import sys, json; data = json.load(sys.stdin); print(f'Events: {len(data.get(\"Items\", []))}')"
 ```
 Expected: 361 events (1 page total)
-
-### Integration with Databricks
-
-Update the UC Connection to use the deployed mock server:
-
-```python
-from databricks.sdk import WorkspaceClient
-
-w = WorkspaceClient(profile="dogfood")
-
-# Update connection
-w.connections.update(
-    name="test_osipi",
-    options={
-        "pi_base_url": "https://mock-piwebapi-912141448724.us-central1.run.app/piwebapi",
-        "access_token": "dosee0e6290a833d381937fa4b8fc150682b",  # gitleaks:allow
-        "verify_ssl": "false",
-        "externalOptionsAllowList": "tableConfigs,maxCount,startIndex,startTime,endTime,tag_webids,tag_name_filter,selectedFields"
-    }
-)
-```
 
 ## Scaling Configuration
 
@@ -357,18 +336,11 @@ gcloud run services add-iam-policy-binding mock-piwebapi \
 
 ### Bearer Token Validation
 
-The mock server accepts a fixed bearer token for testing:
+Authentication is enforced in `mock_piwebapi/main.py`.
 
-**Token:** `dosee0e6290a833d381937fa4b8fc150682b` <!-- gitleaks:allow -->
-
-To change or add token validation, modify `app/api/pi_web_api.py`:
-
-```python
-def verify_token(authorization: str = Header(None)):
-    if not authorization or authorization != "Bearer dosee0e6290a833d381937fa4b8fc150682b":  # gitleaks:allow
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return authorization
-```
+- If `EXPECTED_BEARER_TOKEN` is set in Cloud Run, requests must send exactly:
+  - `Authorization: Bearer <EXPECTED_BEARER_TOKEN>`
+- If `EXPECTED_BEARER_TOKEN` is not set, any non-empty bearer token is accepted.
 
 ## Cost Optimization
 
@@ -404,7 +376,8 @@ Cloud Run pricing (as of 2026):
 **Solution:**
 ```bash
 # Test requirements locally
-cd databricks-app
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 
 # Check for conflicting dependencies
@@ -436,7 +409,7 @@ pip check
 **Solutions:**
 1. Check for large files in build context (add to `.gcloudignore`)
 2. Use smaller base image (python:3.11-slim vs python:3.11)
-3. Layer Dockerfile efficiently (COPY requirements.txt before COPY app)
+3. Layer Dockerfile efficiently (COPY requirements.txt before COPY mock source)
 
 ## CI/CD Integration
 
@@ -450,7 +423,10 @@ on:
     branches:
       - main
     paths:
-      - 'databricks-app/**'
+      - 'mock_piwebapi/**'
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - 'GCP_DEPLOYMENT.md'
 
 jobs:
   deploy:
@@ -466,7 +442,6 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
-          cd databricks-app
           gcloud run deploy mock-piwebapi \
             --source . \
             --region us-central1 \
@@ -479,11 +454,11 @@ jobs:
 
 After successful deployment:
 
-1. **Update UC Connection**: Point `pi_base_url` to Cloud Run URL
-2. **Test Pagination**: Run `sources/osipi/examples/test_pagination_simple.py`
-3. **Verify Results**: Compare row counts across different maxCount values
-4. **Monitor Performance**: Check Cloud Run metrics for response times
-5. **Optimize Configuration**: Adjust `interval_seconds` based on testing needs
+1. **Set a token**: configure `EXPECTED_BEARER_TOKEN` on the Cloud Run service.
+2. **Smoke test**: call `/health`, `/piwebapi`, `/piwebapi/dataservers`.
+3. **Test pagination**: run the scenarios in the “Pagination Testing” section with different `maxCount` values.
+4. **Monitor performance**: use Cloud Run metrics/logs to validate latency under load.
+5. **Tune data density**: adjust `interval_seconds` in `mock_piwebapi/pi_web_api.py` if needed.
 
 ## Support
 
