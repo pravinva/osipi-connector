@@ -1,8 +1,8 @@
-# Google Cloud Run Deployment Guide
+# Google Cloud Run Deployment Guide (Mock PI Web API)
 
 ## Overview
 
-This guide covers deploying the PI Web API mock server to Google Cloud Run for external access and pagination testing.
+This guide covers deploying the **Mock PI Web API server** to Google Cloud Run for external access and pagination testing.
 
 ## Prerequisites
 
@@ -16,22 +16,20 @@ This guide covers deploying the PI Web API mock server to Google Cloud Run for e
 The mock server is deployed as a containerized FastAPI application on Google Cloud Run:
 
 ```
-databricks-app/
-├── Dockerfile              # Container definition
-├── app/
-│   ├── main.py            # FastAPI application
-│   └── api/
-│       └── pi_web_api.py  # PI Web API endpoints
-├── requirements.txt        # Python dependencies
-└── app.yaml               # Cloud Run configuration (optional)
+./
+├── Dockerfile               # Container definition
+├── requirements.txt         # Python dependencies
+└── mock_piwebapi/
+    ├── main.py              # Cloud Run entrypoint (auth wrapper)
+    └── pi_web_api.py        # PI Web API mock endpoints
 ```
 
 ## Deployment Steps
 
-### 1. Navigate to App Directory
+### 1. Navigate to Repo Root
 
 ```bash
-cd /Users/pravin.varma/Documents/Demo/osipi-connector/databricks-app
+cd /Users/pravin.varma/Documents/Demo/osipi-connector
 ```
 
 ### 2. Verify Dockerfile Exists
@@ -114,11 +112,11 @@ Test the deployed service:
 curl https://mock-piwebapi-912141448724.us-central1.run.app/health
 
 # Test PI Web API endpoint
-curl -H "Authorization: Bearer dosee0e6290a833d381937fa4b8fc150682b" \ # gitleaks:allow
+curl -H "Authorization: Bearer <token>" \
   "https://mock-piwebapi-912141448724.us-central1.run.app/piwebapi/dataservers"
 
 # Test time-series data
-curl -H "Authorization: Bearer dosee0e6290a833d381937fa4b8fc150682b" \ # gitleaks:allow
+curl -H "Authorization: Bearer <token>" \
   "https://mock-piwebapi-912141448724.us-central1.run.app/piwebapi/streams/F1DP-Adelaide-U001-Curr-04008/recorded?startTime=*-1h&endTime=*&maxCount=100"
 ```
 
@@ -128,7 +126,7 @@ curl -H "Authorization: Bearer dosee0e6290a833d381937fa4b8fc150682b" \ # gitleak
 
 The mock server generates time-series data with configurable density. For pagination testing:
 
-**File:** `app/api/pi_web_api.py`
+**File:** `mock_piwebapi/pi_web_api.py`
 
 **Line 447-448:**
 ```python
@@ -149,7 +147,7 @@ Set environment variables in Cloud Run:
 gcloud run services update mock-piwebapi \
   --region us-central1 \
   --project <your-project-id> \
-  --set-env-vars MOCK_PI_TAG_COUNT=10000,UC_CATALOG=osipi,UC_SCHEMA=bronze
+  --set-env-vars EXPECTED_BEARER_TOKEN=<long_random_token>
 ```
 
 ## Updating the Deployment
@@ -157,7 +155,7 @@ gcloud run services update mock-piwebapi \
 ### Option 1: Redeploy from Source
 
 ```bash
-cd /Users/pravin.varma/Documents/Demo/osipi-connector/databricks-app
+cd /Users/pravin.varma/Documents/Demo/osipi-connector
 gcloud run deploy mock-piwebapi \
   --source . \
   --region us-central1 \
