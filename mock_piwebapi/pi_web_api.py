@@ -387,8 +387,6 @@ def list_points(
 @app.get("/piwebapi/points/{point_webid}/attributes")
 def get_point_attributes(point_webid: str, selectedFields: str = None):
     """Point GetAttributes (mock): returns a small set of attributes for a point.
-
-    This is used by the Lakeflow OSIPI connector table: pi_point_attributes.
     """
     if point_webid not in MOCK_TAGS:
         raise HTTPException(status_code=404, detail=f"Point {point_webid} not found")
@@ -1452,7 +1450,7 @@ def get_event_frame_attributes(ef_webid: str):
 
     return {"Items": items}
 
-@app.get("/piwebapi/streams/{attr_webid}/value")
+@app.get("/piwebapi/attributes/{attr_webid}/value")
 def get_attribute_value(attr_webid: str):
     """Get current value of an attribute"""
     # Extract event frame ID from attribute WebId
@@ -1468,180 +1466,6 @@ def get_attribute_value(attr_webid: str):
             }
 
     raise HTTPException(status_code=404, detail="Attribute value not found")
-
-# ============================================================================
-# POST ENDPOINTS - Alternative to GET for Databricks App authentication
-# ============================================================================
-
-@app.post("/piwebapi/assetdatabases/list")
-def list_asset_databases_post():
-    """
-    List AF databases (POST alternative for Databricks App)
-    Works around authentication issues with GET endpoints in Databricks Apps
-    """
-    return {
-        "Items": [
-            {
-                "WebId": "F1DP-DB-Production",
-                "Name": "ProductionDB",
-                "Description": "Production Asset Database",
-                "Path": "\\\\MockPIAF\\ProductionDB"
-            }
-        ]
-    }
-
-class AFElementsRequest(BaseModel):
-    db_webid: str
-    maxCount: Optional[int] = 10000
-
-@app.post("/piwebapi/assetdatabases/elements")
-def get_database_elements_post(request: AFElementsRequest):
-    """
-    Get root elements of AF database (POST alternative for Databricks App)
-    Works around authentication issues with GET endpoints in Databricks Apps
-    """
-    if request.db_webid not in MOCK_AF_HIERARCHY:
-        raise HTTPException(status_code=404, detail=f"Database {request.db_webid} not found")
-
-    db = MOCK_AF_HIERARCHY[request.db_webid]
-    return {"Items": db["Elements"]}
-
-class EventFramesRequest(BaseModel):
-    db_webid: str
-    startTime: str
-    endTime: str
-    searchMode: Optional[str] = "Overlapped"
-    maxCount: Optional[int] = 1000
-
-@app.post("/piwebapi/assetdatabases/eventframes")
-def get_event_frames_post(request: EventFramesRequest):
-    """
-    Get event frames from AF database (POST alternative for Databricks App)
-    Works around authentication issues with GET endpoints in Databricks Apps
-    """
-    # Parse time strings
-    try:
-        if request.startTime.startswith('*'):
-            # Handle relative time (e.g., "*-30d")
-            days = int(request.startTime.replace('*-', '').replace('d', ''))
-            start_dt = datetime.now() - timedelta(days=days)
-        else:
-            start_dt = datetime.fromisoformat(request.startTime.replace('Z', ''))
-
-        if request.endTime == '*':
-            end_dt = datetime.now()
-        else:
-            end_dt = datetime.fromisoformat(request.endTime.replace('Z', ''))
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid datetime format")
-
-    filtered_events = []
-
-    for event in MOCK_EVENT_FRAMES:
-        # Ensure event timestamps are timezone-aware (avoid naive vs aware comparison errors)
-        try:
-            event_start = _parse_pi_time(event.get("StartTime"), now=now)
-            event_end = _parse_pi_time(event.get("EndTime") or "*", now=now)
-        except Exception:
-            continue
-
-        # Apply time filter based on search mode
-        include_event = False
-
-        if request.searchMode == "Overlapped":
-            # Include if any part of event overlaps with query time range
-            include_event = event_start <= end_dt and event_end >= start_dt
-        elif request.searchMode == "StartInclusive":
-            # Include if event started within time range
-            include_event = start_dt <= event_start <= end_dt
-
-        if include_event:
-            filtered_events.append(event)
-
-        if len(filtered_events) >= request.maxCount:
-            break
-
-    return {"Items": filtered_events[startIndex : startIndex + maxCount]}
-
-# New POST endpoints for AF element traversal (fix for Databricks App auth)
-class ElementRequest(BaseModel):
-    element_webid: str
-
-@app.post("/piwebapi/elements/get")
-def get_element_post(request: ElementRequest):
-    """
-    Get element details by WebId (POST alternative for Databricks App)
-    Works around authentication issues with GET endpoints in Databricks Apps
-    """
-    element_webid = request.element_webid
-
-    # Search in AF hierarchy
-    def find_element(webid: str, hierarchy: Dict) -> Optional[Dict]:
-        """Recursively search for element by WebId"""
-        for db_webid, db_data in hierarchy.items():
-            if db_data.get("WebId") == webid:
-                return db_data
-
-            # Search in elements
-            for plant in db_data.get("Elements", []):
-                if plant.get("WebId") == webid:
-                    return plant
-
-                for unit in plant.get("Elements", []):
-                    if unit.get("WebId") == webid:
-                        return unit
-
-                    for equipment in unit.get("Elements", []):
-                        if equipment.get("WebId") == webid:
-                            return equipment
-
-        return None
-
-    element = find_element(element_webid, MOCK_AF_HIERARCHY)
-
-    if not element:
-        raise HTTPException(status_code=404, detail=f"Element {element_webid} not found")
-
-    return element
-
-@app.post("/piwebapi/elements/children")
-def get_element_children_post(request: ElementRequest):
-    """
-    Get child elements (POST alternative for Databricks App)
-    Works around authentication issues with GET endpoints in Databricks Apps
-    """
-    element_webid = request.element_webid
-
-    # Search in AF hierarchy
-    def find_element(webid: str, hierarchy: Dict) -> Optional[Dict]:
-        """Recursively search for element by WebId"""
-        for db_webid, db_data in hierarchy.items():
-            if db_data.get("WebId") == webid:
-                return db_data
-
-            # Search in elements
-            for plant in db_data.get("Elements", []):
-                if plant.get("WebId") == webid:
-                    return plant
-
-                for unit in plant.get("Elements", []):
-                    if unit.get("WebId") == webid:
-                        return unit
-
-                    for equipment in unit.get("Elements", []):
-                        if equipment.get("WebId") == webid:
-                            return equipment
-
-        return None
-
-    element = find_element(element_webid, MOCK_AF_HIERARCHY)
-
-    if not element:
-        raise HTTPException(status_code=404, detail=f"Element {element_webid} not found")
-
-    # Return child elements
-    children = element.get("Elements", [])
-    return {"Items": children}
 
 @app.get("/health")
 def health_check():
