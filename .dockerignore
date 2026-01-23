@@ -1,0 +1,21 @@
+.git
+.github
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+dist/
+build/
+.DS_Store
+
+# Repo cleanup: exclude legacy directories if still present
+databricks-app/
+deployment/
+docs/
+lakeflow_cc/
+notebooks/
+sources/
+src/
+visualizations/
+debugtools/
